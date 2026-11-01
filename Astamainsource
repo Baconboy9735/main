@@ -1,8 +1,15 @@
 -- Asta AOTR: recorded Music2 -> Talents -> Prestige with Level/Gold gates and fast mission startup.
 local source = [==========[
+
+local AstaMissionQuiet={owner=nil,untilTime=0}
+local function missionQuietActive()
+    return AstaMissionQuiet.owner~=nil and os.clock()<AstaMissionQuiet.untilTime
+        and (not AstaMissionQuiet.isValid or AstaMissionQuiet.isValid())
+end
 local AstaPrestigeExclusive = {held = false, untilTime = 0}
 local function AstaAwaitPrestige(...)
-    while AstaPrestigeExclusive.held and os.clock() < AstaPrestigeExclusive.untilTime do
+    while (AstaPrestigeExclusive.held and os.clock() < AstaPrestigeExclusive.untilTime)
+        or (missionQuietActive() and AstaMissionQuiet.owner~=coroutine.running()) do
         task.wait(0.05)
     end
     return ...
@@ -108,17 +115,20 @@ getgenv().TownShipConfig = {
                 "Chronic Injuries",  -- Enables the Chronic Injuries modifier.
                 "No Memories",       -- Enables the No Memories modifier.
                 "Time Trial",        -- Enables the Time Trial modifier.
+                "Evolution",         -- Enables the Evolution modifier.
+                "Fatigue",           -- Enables the Fatigue modifier.
             },
 
-            Delay = 0,                -- Start mission creation immediately after eligibility preflight.
+            Delay = 10,                -- Start mission creation immediately after eligibility preflight.
             WavesDelay = 0,          -- Extra delay in seconds for wave actions.
         },
 
         Boosts = {
             Enabled = true,          -- Master toggle for the automatic boost system.
             Gold = true,             -- Enables automatic Gold boost handling.
-            Luck = false,            -- Enables automatic Luck boost handling.
+            Luck = true,             -- Buy 2h Luck with Pumpkins only; never spend Gems.
             XP = true,               -- Buy 2h XP only below max level.
+            PreferPumpkins = true,   -- Prefer verified Pumpkins boost offers, then Gems if unaffordable.
             InventoryPotions = true, -- Use owned Gold/Luck/XP potions before buying.
             Delay = 1,               -- Seconds between automatic boost checks.
 
@@ -183,7 +193,7 @@ getgenv().TownShipConfig = {
         },
 
         Prestige = {
-            Enabled = true,          -- Enables automatic prestige.
+            Enabled = false,          -- Enables automatic prestige.
             RejoinOnFailure = true,  -- Rejoin only while all Prestige requirements are verified.
             RejoinAfter = 60,        -- Seconds of stalled eligible Prestige before Lobby recovery.
             PrepareTalentsOnce = true, -- Recorded Music2 -> Talents(no Item) -> offered-name Prestige flow.
@@ -193,8 +203,8 @@ getgenv().TownShipConfig = {
                 [0] = 0,           -- Gold requirement used for Prestige 0 -> 1.
                 [1] = 0,           -- Gold requirement used for Prestige 1 -> 2.
                 [2] = 0,           -- Gold requirement used for Prestige 2 -> 3.
-                [3] = 500,           -- Gold requirement used for Prestige 3 -> 4.
-                [4] = 1000,          -- Gold requirement used for Prestige 4 -> 5.
+                [3] = 0,           -- Gold requirement used for Prestige 3 -> 4.
+                [4] = 0,          -- Gold requirement used for Prestige 4 -> 5.
             },
 
             Boost = "Gold Boost",    -- Boost name/value passed to the prestige system.
@@ -205,6 +215,9 @@ getgenv().TownShipConfig = {
         Claims = {
             Quests = true,            -- Claims only currently claimable non-Battlepass quests using the live quest reader.
             Achievements = true,     -- Claims only currently claimable achievements using the live Titles reader.
+            Battlepass = true,       -- Claim available Free/Paid tier rewards.
+            AutoBuyPremium = true,   -- Buy the pictured Ascension pass with Gems when affordable.
+            PremiumMaxGems = 24999,   -- Maximum allowed displayed price; never selects Ascension+.
             Delay = 0.1,               -- Extra delay between claim actions.
         },
 
@@ -270,13 +283,13 @@ getgenv().TownShipConfig = {
         PlayerStats = false,         -- Enables the player-stats display/worker from the original script.
 
         Farm = {
-            Mode = "No Movement",          -- Blade movement mode: "Tween", "Teleport", or "No Movement".
+            Mode = "Tween",          -- Blade movement mode: "Tween", "Teleport", or "No Movement".
             HoverSpeed = 1000,       -- Tween/movement speed used while moving above Titans.
             HoverHeight = 400,       -- Height in studs to stay above the current Titan.
 
             SafetyTime = 0,          -- Seconds to wait in safety/wave state before normal farming starts.
             StopAtTitansLeft = 0,    -- Stop/pause threshold based on Titans remaining. 0 disables the threshold.
-            KillHits = 9,            -- Number of Titan targets/hits used by the fast Titan worker.
+            KillHits = 15,           -- Maximum targets in the native Blade sweep.
         },
 
         RemoteControl = {
@@ -305,7 +318,7 @@ getgenv().TownShipConfig = {
 
         Performance = {
             UIScale = 100,           -- Old UI scale percentage. Kept for compatibility even though this build is headless.
-            FPSLimit = 10,           -- FPS cap from the config you sent.
+            FPSLimit = 99999999,           -- FPS cap from the config you sent.
 
             RenderModes = {          -- Performance/render optimizations to enable.
                 "Delete Map",        -- Removes supported map objects to reduce rendering load.
@@ -410,6 +423,12 @@ if type(getgenv().AstaPrestigeResumeConfig) == "table" then
     getgenv().AstaPrestigeResumeConfig = nil
 end
 local CONFIG = getgenv().TownShipConfig
+if getgenv().AstaThunderResume then
+    CONFIG.Mission.AutoSpearQuest=true
+    getgenv().AstaThunderResume=nil
+end
+getgenv().AstaTSOwns = CONFIG.Mission.AutoSpearQuest == true
+
 getgenv().AstaPrestigePreflight = nil
 getgenv().AstaPrestigeStatus = nil
 
@@ -622,6 +641,8 @@ elseif game.PlaceId == LOBBY_ID_CONFIG
 
     setToggle("ClaimQuestToggle", C.Claims.Quests)
     setToggle("ClaimAchievementToggle", C.Claims.Achievements)
+    setToggle("ClaimBattlepassToggle", C.Claims.Battlepass)
+    setToggle("BuyBattlepassPremiumToggle", C.Claims.AutoBuyPremium)
     setValue("ClaimDelaySlider", C.Claims.Delay)
 
     setValue("Trade_Acc1_Dropdown", copyList(C.Trade.Receiver))
@@ -1427,6 +1448,856 @@ local function resetMissionsCount()
     completedMissions = 0
     saveMissionsCount()
 end
+
+do
+    local env=getgenv()
+    local factorySource=[======[
+local bridge = ...
+local env = getgenv()
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local player = Players.LocalPlayer
+local storage = game:GetService("ReplicatedStorage")
+local assets = storage:WaitForChild("Assets", 15)
+local remotes = assets and assets:WaitForChild("Remotes", 15)
+local post = remotes and remotes:WaitForChild("POST", 15)
+assert(post and post:IsA("RemoteEvent"), "AOTR POST remote unavailable")
+assert(type(run_on_actor) == "function", "This version requires run_on_actor")
+
+local old = env.AOTRAutoKill
+if type(old) == "table" then
+    if type(old.Destroy) == "function" then old:Destroy()
+    elseif type(old.Stop) == "function" then old:Stop() end
+end
+
+local controller = {
+    Enabled = false,
+    Status = "Ready",
+    Range = 9999,
+    HitDelay = 0.13,
+    Interval = 0.6,
+    NapeScale = 3,
+    MaxTargets = 15,
+    ForceNine = true,
+    AutoMove = true,
+    AutoRefill = false,
+    AutoRetry = false,
+    RetryDelay = 2,
+    RetryAttempts = 0,
+    RefillsCompleted = 0,
+    TeleportBetweenTitans = true,
+    HoverAbove = true,
+    HoverHeight = 200,
+    HoverOrbit = true,
+    HoverOrbitRadius = 30,
+    TeleportInterval = 0.8,
+    TeleportOffset = Vector3.new(0, 200, 0),
+    Teleports = 0,
+    MovementSpeed = 220,
+    MinimumHitSpeed = 180,
+    ConfirmedKills = 0,
+    BestBurstKills = 0,
+    LastBurstKills = 0,
+    ShadowStatus = "Unknown",
+    ShadowReason = "No check yet",
+    OrbitRadius = 45,
+    HeightOffset = 12,
+    HitsSent = 0,
+    LastError = nil,
+}
+env.AOTRAutoKill = controller
+local worker, destroyed, busy = nil, false, false
+local activeActor
+local movementTarget, movementConnection, movementForce, movementAttachment, movementRoot
+local visited = setmetatable({}, {__mode = "k"})
+local lastTeleport, lastTeleportTarget, teleportDirection = -math.huge, nil, nil
+local hoverAngle, hoverClock = 0, os.clock()
+local function clearMovement()
+    if movementForce then movementForce:Destroy() movementForce = nil end
+    if movementAttachment then movementAttachment:Destroy() movementAttachment = nil end
+    if movementRoot and movementRoot.Parent then movementRoot.AssemblyLinearVelocity = Vector3.zero end
+    movementRoot = nil
+end
+local function updateMovement()
+    if bridge.Paused() then clearMovement() return end
+    local char = player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    local target = movementTarget
+    local actor = char and char:FindFirstChild("Actor")
+    if actor and actor:GetAttribute("AOTRAKRefilling") == true then
+        clearMovement() return
+    end
+    if not controller.Enabled or not controller.AutoMove or not root or not humanoid
+        or humanoid.Health <= 0 or not target or not target.Parent or not target.CanTouch then
+        clearMovement() return
+    end
+    if movementRoot ~= root then
+        clearMovement()
+        movementRoot = root
+        movementAttachment = Instance.new("Attachment")
+        movementAttachment.Name = "AOTRAutoMoveAttachment"
+        movementAttachment.Parent = root
+        movementForce = Instance.new("LinearVelocity")
+        movementForce.Name = "AOTRAutoMoveVelocity"
+        movementForce.Attachment0 = movementAttachment
+        movementForce.RelativeTo = Enum.ActuatorRelativeTo.World
+        movementForce.MaxForce = math.max(100000, root.AssemblyMass * 5000)
+        movementForce.Parent = root
+    end
+    local speed = math.clamp(tonumber(controller.MovementSpeed) or 140, 20, 250)
+    if controller.TeleportBetweenTitans and controller.HoverAbove then
+        local titan = target.Parent.Parent.Parent
+        local fake = titan:FindFirstChild("Fake")
+        local head = fake and fake:FindFirstChild("Head") or titan:FindFirstChild("Head")
+        local top = target.Position.Y + target.Size.Y / 2
+        if head and head:IsA("BasePart") then top = math.max(top, head.Position.Y + head.Size.Y / 2) end
+        local height = math.clamp(tonumber(controller.HoverHeight) or 200, 30, 1000)
+        local position = Vector3.new(target.Position.X, top + height, target.Position.Z)
+        local facing = Vector3.new(target.CFrame.LookVector.X, 0, target.CFrame.LookVector.Z)
+        if facing.Magnitude < 0.01 then facing = Vector3.new(0, 0, -1) end
+        local velocity = Vector3.zero
+        local now = os.clock()
+        if controller.HoverOrbit then
+            local radius = math.clamp(tonumber(controller.HoverOrbitRadius) or 30, 15, 60)
+            hoverAngle += math.min(now - hoverClock, 0.1) * speed / radius
+            position += Vector3.new(math.cos(hoverAngle) * radius, 0, math.sin(hoverAngle) * radius)
+            velocity = Vector3.new(-math.sin(hoverAngle), 0, math.cos(hoverAngle)) * speed
+            facing = velocity.Unit
+        end
+        hoverClock = now
+        -- Keep altitude while actual circular displacement maintains blade momentum.
+        root.CFrame = CFrame.lookAt(position, position + facing.Unit)
+        root.AssemblyLinearVelocity = velocity
+        root.AssemblyAngularVelocity = Vector3.zero
+        movementForce.VectorVelocity = velocity
+        if lastTeleportTarget ~= target then
+            lastTeleport, lastTeleportTarget = os.clock(), target
+            visited[target] = lastTeleport
+            controller.Teleports += 1
+            controller.LastTeleportTarget = titan.Name
+        end
+        controller.HoverPosition = position
+        controller.ActualSpeed = velocity.Magnitude
+        return
+    end
+    if controller.TeleportBetweenTitans then
+        local now = os.clock()
+        local interval = math.clamp(tonumber(controller.TeleportInterval) or 0.8, 0.4, 5)
+        if now - lastTeleport >= interval then
+            local offset = typeof(controller.TeleportOffset) == "Vector3"
+                and controller.TeleportOffset or Vector3.new(0, 8, 22)
+            local position = target.CFrame:PointToWorldSpace(offset)
+            root.CFrame = CFrame.lookAt(position, target.Position)
+            teleportDirection = root.CFrame.LookVector
+            root.AssemblyLinearVelocity = teleportDirection * speed
+            lastTeleport, lastTeleportTarget = now, target
+            visited[target] = now
+            controller.Teleports += 1
+            controller.LastTeleportTarget = target.Parent.Parent.Parent.Name
+        end
+        movementForce.VectorVelocity = (teleportDirection or root.CFrame.LookVector) * speed
+        controller.ActualSpeed = root.AssemblyLinearVelocity.Magnitude
+        return
+    end
+    local radius = math.clamp(tonumber(controller.OrbitRadius) or 45, 20, 120)
+    local delta = target.Position - root.Position
+    local horizontal = Vector3.new(delta.X, 0, delta.Z)
+    local distance = horizontal.Magnitude
+    local toward = distance > 0.01 and horizontal.Unit or Vector3.new(1, 0, 0)
+    local tangent = Vector3.new(-toward.Z, 0, toward.X)
+    local velocity = distance > radius * 2 and toward * speed
+        or tangent * speed + toward * math.clamp((distance - radius) * 2, -speed * 0.65, speed * 0.65)
+    local height = math.clamp(tonumber(controller.HeightOffset) or 12, 0, 100)
+    velocity += Vector3.new(0, math.clamp((delta.Y + height) * 2, -speed * 0.6, speed * 0.6), 0)
+    if velocity.Magnitude > speed then velocity = velocity.Unit * speed end
+    movementForce.VectorVelocity = velocity
+    controller.ActualSpeed = root.AssemblyLinearVelocity.Magnitude
+end
+local attempts = setmetatable({}, {__mode = "k"})
+local originalSizes = setmetatable({}, {__mode = "k"})
+local function restoreNapes()
+    for nape, size in pairs(originalSizes) do
+        if nape.Parent then pcall(function() nape.Size = size end) end
+        originalSizes[nape] = nil
+    end
+end
+
+-- Actor-local host state is separate from the executor's main environment.
+local nativeAttack = [=[
+local player = game:GetService("Players").LocalPlayer
+local character = player.Character
+local actor = character and character:FindFirstChild("Actor")
+if not actor then return end
+local job = actor:GetAttribute("AOTRAKJob")
+local function running()
+    return actor:GetAttribute("AstaSupplyMode")~="Reload" and actor:GetAttribute("AstaSupplyMode")~="Refill"
+        and actor:GetAttribute("AOTRAKPaused") ~= true
+        and actor:GetAttribute("AOTRAKEnabled") == true
+        and actor:GetAttribute("AOTRAKJob") == job and player.Character == character
+end
+local function attack()
+    if not running() then return end
+    local host = getgenv().AOTRNativeHost
+    if not host or not host.Cache or host.Cache.Character ~= character then
+        assert(type(filtergc) == "function", "Actor filtergc unavailable")
+        host = nil
+        for _, candidate in ipairs(filtergc("table", {Keys = {"Modules", "Cache"}}, false)) do
+            if type(candidate.Cache) == "table" and candidate.Cache.Character == character
+                and type(candidate.Modules) == "table" and candidate.Modules.ODMG then
+                host = candidate
+                break
+            end
+        end
+        if not host then
+            actor:SetAttribute("AOTRAKStatus", "Waiting for character combat to initialize")
+            return
+        end
+        getgenv().AOTRNativeHost = host
+    end
+    local modules = host.Modules
+    local feedback = getgenv().AOTRKillFeedback
+    if not feedback or feedback.Actor ~= actor or feedback.Version ~= 2 then
+        if feedback and feedback.Connection then feedback.Connection:Disconnect() end
+        feedback = {Version = 2, Actor = actor, Weakened = {}, Pending = {}, Counted = {}, BurstKills = {}, Serial = 0, Total = 0, Best = 0}
+        getgenv().AOTRKillFeedback = feedback
+        local function targetName(value)
+            if typeof(value) == "Instance" then
+                if value:IsA("Model") then return value.Name end
+                local model = value:FindFirstAncestorOfClass("Model")
+                return model and model.Name
+            elseif type(value) == "string" then
+                return value:match("Titans%.([^%.]+)") or value
+            end
+        end
+        feedback.Connection = game:GetService("ReplicatedStorage").Assets.Remotes.POST.OnClientEvent:Connect(function(channel, action, kind, object, part)
+            if actor:GetAttribute("AOTRAKEnabled") ~= true then return end
+            if channel == "Zones" and action == "Damage_Check" and type(kind) == "number" and kind > 0 then
+                actor:SetAttribute("AOTRAKLastDamageAt", os.clock())
+                actor:SetAttribute("AOTRAKLastDamage", kind)
+                actor:SetAttribute("AOTRAKSentAtDamage", actor:GetAttribute("AOTRAKSent") or 0)
+                actor:SetAttribute("AOTRAKFeedbackWindow", nil)
+                return
+            end
+            if channel ~= "Effects" then return end
+            local name = targetName(object)
+            if not name then return end
+            if action == "Hit" then
+                local isNape = typeof(part) == "Instance" and part.Name == "Nape"
+                    or type(part) == "string" and part:match("Nape$") ~= nil
+                if isNape then feedback.Weakened[name] = (feedback.Weakened[name] or 0) + 1 end
+            elseif action == "Sound" and kind == "Hit_Kill" then
+                local pending = feedback.Pending[name]
+                if pending and os.clock() - pending.Time <= 4 and not feedback.Counted[name] then
+                    feedback.Counted[name] = os.clock()
+                    feedback.Weakened[name] = nil
+                    local id = pending.Id
+                    feedback.BurstKills[id] = (feedback.BurstKills[id] or 0) + 1
+                    feedback.Total += 1
+                    feedback.Best = math.max(feedback.Best, feedback.BurstKills[id])
+                    actor:SetAttribute("AOTRAKConfirmedKills", feedback.Total)
+                    actor:SetAttribute("AOTRAKBestBurstKills", feedback.Best)
+                    if id == feedback.Serial then actor:SetAttribute("AOTRAKLastBurstKills", feedback.BurstKills[id]) end
+                end
+            end
+        end)
+    end
+    local slash = host.Cache.Variables.Slash
+    local root = character.PrimaryPart
+    local humanoid = character:FindFirstChildWhichIsA("Humanoid")
+    if not root or not humanoid or humanoid.Health <= 0 then return end
+    if not host.Loadout or host.Loadout.Weapon ~= "Blades" then return end
+    local function bladesReady()
+        local variables = host.Cache.Variables
+        if variables.Reload or variables.Full_Reload then
+            actor:SetAttribute("AOTRAKStatus", "Reloading blades") return false
+        end
+        if modules.ODMG.Blade_Check(host, character) then return true end
+        -- Reload/refill are owned by the main hub.
+        actor:SetAttribute("AOTRAKStatus", variables.Reload and "Reloading blades" or "No spare blades — refill supplies")
+        return false
+    end
+    if not bladesReady() then return end
+    local folder = workspace:FindFirstChild("Titans")
+    local titan = folder and folder:FindFirstChild(actor:GetAttribute("AOTRAKTarget") or "")
+    local boxes = titan and titan:FindFirstChild("Hitboxes")
+    local hit = boxes and boxes:FindFirstChild("Hit")
+    local nape = hit and hit:FindFirstChild("Nape")
+    if not nape or not nape.CanTouch then return end
+    local range = actor:GetAttribute("AOTRAKRange") or 9999
+    local strike = math.max(1, math.floor(tonumber(host.Loadout.Stats.Strike) or 1))
+    local limit = math.clamp(math.floor(actor:GetAttribute("AOTRAKMaxTargets") or 15), 1, 15)
+    local forceNine = actor:GetAttribute("AOTRAKForceNine") == true
+    local perSwing = forceNine and limit or strike
+    actor:SetAttribute("AOTRAKStrikeLimit", strike)
+    local targets = {{Part = nape, Distance = (root.Position - nape.Position).Magnitude, Weakness = feedback.Weakened[titan.Name] or 0}}
+    for _, other in ipairs(folder:GetChildren()) do
+        local otherBoxes = other:FindFirstChild("Hitboxes")
+        local otherHit = otherBoxes and otherBoxes:FindFirstChild("Hit")
+        local part = otherHit and otherHit:FindFirstChild("Nape")
+        if part and part ~= nape and part:IsA("BasePart") and part.CanTouch
+            and other:GetAttribute("Dead") ~= true then
+            local distance = (root.Position - part.Position).Magnitude
+            if distance <= range then targets[#targets + 1] = {Part = part, Distance = distance, Weakness = feedback.Weakened[other.Name] or 0} end
+        end
+    end
+    table.sort(targets, function(a, b)
+        if a.Weakness ~= b.Weakness then return a.Weakness > b.Weakness end
+        return a.Distance < b.Distance
+    end)
+    -- Keep reserve candidates so targets that die during wind-up do not waste slots.
+    local count = #targets
+    local cursor, sent, swings = 1, 0, 0
+    local deadline = os.clock() + 25
+    actor:SetAttribute("AOTRAKLastBatch", 0)
+    actor:SetAttribute("AOTRAKLastSwings", 0)
+    while cursor <= count and sent < limit and running() and humanoid.Health > 0 and os.clock() < deadline do
+        if slash.Slashing ~= false or slash.Cooldown ~= false then
+            actor:SetAttribute("AOTRAKStatus", "Sweep: " .. sent .. " hits; waiting for cooldown")
+            task.wait(0.05)
+            continue
+        end
+        if not bladesReady() then return end
+        local speedDeadline = os.clock() + 1
+        local minSpeed = actor:GetAttribute("AOTRAKMinimumHitSpeed") or 180
+        while running() and root.AssemblyLinearVelocity.Magnitude < minSpeed and os.clock() < speedDeadline do
+            actor:SetAttribute("AOTRAKStatus", "Building movement speed")
+            task.wait(0.05)
+        end
+        if not running() then return end
+        modules.ODMG.M1(host, false)
+        if slash.Slashing ~= true then
+            actor:SetAttribute("AOTRAKStatus", "Attack unavailable") return
+        end
+        swings += 1
+        actor:SetAttribute("AOTRAKLastSwings", swings)
+        task.wait(0.1)
+        -- Always release a started swing so STOP cannot leave it held.
+        modules.Input.Slash(host, root, humanoid)
+        task.wait(actor:GetAttribute("AOTRAKDelay") or 0.13)
+        if not running() or humanoid.Health <= 0 then return end
+        if slash.Slashing ~= true or slash.Released ~= true then return end
+        local swingHits = 0
+        feedback.Serial += 1
+        local burstId = feedback.Serial
+        feedback.BurstKills[burstId] = 0
+        feedback.BurstKills[burstId - 64] = nil
+        actor:SetAttribute("AOTRAKLastBurstKills", 0)
+        for name, pending in pairs(feedback.Pending) do
+            if os.clock() - pending.Time > 30 then feedback.Pending[name] = nil end
+        end
+        for name, timestamp in pairs(feedback.Counted) do
+            if os.clock() - timestamp > 60 then feedback.Counted[name] = nil end
+        end
+        while cursor <= count and sent < limit and swingHits < perSwing and (forceNine or #modules.Zones.Hit < strike) do
+            local part = targets[cursor].Part
+            cursor += 1
+            if part:IsDescendantOf(folder) and part.CanTouch
+                and (root.Position - part.Position).Magnitude <= range
+                and not table.find(modules.Zones.Hit, part) then
+                table.insert(modules.Zones.Hit, part)
+                feedback.Pending[part.Parent.Parent.Parent.Name] = {Id = burstId, Time = os.clock()}
+                if not actor:GetAttribute("AOTRAKFeedbackWindow") then
+                    actor:SetAttribute("AOTRAKFeedbackWindow", os.clock())
+                end
+                actor:SetAttribute("AOTRAKLastAttemptAt", os.clock())
+                host:Send("Hitboxes", "Register", part, modules.Zones.Time_Difference)
+                sent += 1
+                swingHits += 1
+                actor:SetAttribute("AOTRAKSent", (actor:GetAttribute("AOTRAKSent") or 0) + 1)
+            end
+        end
+        actor:SetAttribute("AOTRAKLastBatch", sent)
+        actor:SetAttribute("AOTRAKLastBurstHits", swingHits)
+        actor:SetAttribute("AOTRAKStatus", "Sweep: " .. sent .. "/" .. limit .. " hits across " .. swings .. " swings")
+        task.wait(0.05)
+    end
+end
+local ok, err = pcall(attack)
+if not ok and actor:GetAttribute("AOTRAKJob") == job then
+    actor:SetAttribute("AOTRAKRefilling", false)
+    actor:SetAttribute("AOTRAKError", tostring(err))
+end
+if actor:GetAttribute("AOTRAKJob") == job then actor:SetAttribute("AOTRAKBusy", false) end
+]=]
+
+local function show(message)
+    controller.Status = message
+    local actor = player.Character and player.Character:FindFirstChild("Actor")
+    if actor then
+        controller.ConfirmedKills = actor:GetAttribute("AOTRAKConfirmedKills") or 0
+        controller.HitsSent = actor:GetAttribute("AOTRAKSent") or controller.HitsSent
+    end
+end
+local function handleRewards()
+    local ui=player.PlayerGui:FindFirstChild("Interface")
+    local rewards=ui and ui:FindFirstChild("Rewards")
+    local b=rewards and rewards:FindFirstChild("Retry",true)
+    if not b or not b:IsA("GuiButton") or not b.Active then return false end
+    local a=b
+    while a and a~=player.PlayerGui do
+        if a:IsA("GuiObject") and not a.Visible then return false end
+        if a:IsA("ScreenGui") and not a.Enabled then return false end
+        a=a.Parent
+    end
+    clearMovement();show("Mission finished");return true
+end
+local function selectTarget(root, folder)
+    local best, score
+    local now = os.clock()
+    for _, titan in ipairs(folder:GetChildren()) do
+        local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
+        local boxes = titan:FindFirstChild("Hitboxes")
+        local hit = boxes and boxes:FindFirstChild("Hit")
+        local nape = hit and hit:FindFirstChild("Nape")
+        if humanoid and humanoid.Health > 0 and titan:GetAttribute("Dead") ~= true
+            and nape and nape:IsA("BasePart") and nape.CanTouch then
+            local distance = (root.Position - nape.Position).Magnitude
+            if distance <= controller.Range then
+                local size = originalSizes[nape]
+                if not size then size = nape.Size originalSizes[nape] = size end
+                nape.Size = size * math.clamp(tonumber(controller.NapeScale) or 3, 1, 10)
+                -- Favor nearby targets while allowing other titans a turn.
+                local priority = distance + math.max(0, 2 - (now - (attempts[nape] or -math.huge))) * 30
+                if controller.TeleportBetweenTitans then
+                    -- Visit unvisited titans first, then revisit the oldest target.
+                    priority = (visited[nape] or 0) + distance / 1000000
+                end
+                if not score or priority < score then best, score = nape, priority end
+            end
+        end
+    end
+    if controller.TeleportBetweenTitans and controller.HoverAbove and movementTarget
+        and movementTarget:IsDescendantOf(folder) and movementTarget.CanTouch then
+        local titan = movementTarget.Parent.Parent.Parent
+        local health = titan:FindFirstChildWhichIsA("Humanoid")
+        if health and health.Health > 0 and titan:GetAttribute("Dead") ~= true then
+            return movementTarget
+        end
+    end
+    return best
+end
+
+local function step()
+    if bridge.Paused() then
+        if activeActor then activeActor:SetAttribute("AOTRAKPaused",true) end
+        clearMovement();show("Paused for main reload/refill or Prestige");return
+    end
+    if handleRewards() then return end
+    local char = player.Character
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not humanoid or humanoid.Health <= 0 or not root then
+        restoreNapes()
+        show("Waiting for living character") return
+    end
+    if player:GetAttribute("Weapon") ~= "Blades" then
+        restoreNapes()
+        show("Equip blades") return
+    end
+    local folder = workspace:FindFirstChild("Titans")
+    if not folder then show("Waiting for mission") return end
+    local nape = selectTarget(root, folder)
+    movementTarget = nape
+    if not nape then show("No titan within " .. controller.Range .. " studs") return end
+    if controller.AutoMove and controller.TeleportBetweenTitans then
+        updateMovement()
+        task.wait(0.12)
+        if not controller.Enabled or player.Character ~= char then return end
+    end
+
+    local actor = char:FindFirstChild("Actor")
+    if not actor then show("Waiting for character combat") return end
+    activeActor = actor
+    if actor:GetAttribute("AOTRAKBusy") then
+        show("Waiting for automatic swing") return
+    end
+    local before = actor:GetAttribute("AOTRAKSent") or 0
+    actor:SetAttribute("AOTRAKPaused",false)
+    actor:SetAttribute("AOTRAKTarget", nape.Parent.Parent.Parent.Name)
+    actor:SetAttribute("AOTRAKEnabled", true)
+    actor:SetAttribute("AOTRAKRange", controller.Range)
+    actor:SetAttribute("AOTRAKDelay", controller.HitDelay)
+    actor:SetAttribute("AOTRAKMaxTargets", controller.MaxTargets)
+    actor:SetAttribute("AOTRAKForceNine", controller.ForceNine)
+    actor:SetAttribute("AOTRAKMinimumHitSpeed", math.clamp(tonumber(controller.MinimumHitSpeed) or 180, 0, 250))
+    actor:SetAttribute("AOTRAKAutoRefill", controller.AutoRefill)
+    actor:SetAttribute("AOTRAKError", nil)
+    actor:SetAttribute("AOTRAKJob", (actor:GetAttribute("AOTRAKJob") or 0) + 1)
+    actor:SetAttribute("AOTRAKStatus", "Starting automatic swing")
+    actor:SetAttribute("AOTRAKBusy", true)
+    run_on_actor(actor, nativeAttack)
+    local deadline = os.clock() + 30
+    repeat
+        task.wait(0.1)
+        if controller.Enabled then show(actor:GetAttribute("AOTRAKStatus") or "Sweeping targets") end
+    until not actor:GetAttribute("AOTRAKBusy")
+        or not controller.Enabled or os.clock() >= deadline
+    local err = actor:GetAttribute("AOTRAKError")
+    if err then error(err) end
+    if actor:GetAttribute("AOTRAKBusy") and controller.Enabled then
+        error("Native swing timed out; reload script before retrying")
+    end
+    local sent = math.max(0, (actor:GetAttribute("AOTRAKSent") or 0) - before)
+    controller.HitsSent += sent
+    controller.RefillsCompleted = actor:GetAttribute("AOTRAKRefillsCompleted") or 0
+    if sent > 0 then attempts[nape] = os.clock() end
+    if controller.Enabled then show(actor:GetAttribute("AOTRAKStatus") or "Waiting") end
+end
+
+function controller:Stop()
+    self.Enabled = false
+    if movementConnection then movementConnection:Disconnect() movementConnection = nil end
+    movementTarget = nil
+    clearMovement()
+    if worker then pcall(task.cancel, worker) worker = nil end
+    busy = false
+    if activeActor then
+        activeActor:SetAttribute("AOTRAKEnabled", false)
+        activeActor:SetAttribute("AOTRAKRetryEnabled", false)
+        activeActor:SetAttribute("AOTRAKRefilling", false)
+        activeActor:SetAttribute("AOTRAKJob", (activeActor:GetAttribute("AOTRAKJob") or 0) + 1)
+        activeActor:SetAttribute("AOTRAKBusy", false)
+    end
+    restoreNapes()
+    show("Stopped")
+end
+
+function controller:Start()
+    if destroyed or self.Enabled then return end
+    self.Enabled = true
+    self.LastError = nil
+    movementConnection = RunService.Heartbeat:Connect(function()
+        if activeActor then activeActor:SetAttribute("AOTRAKPaused",bridge.Paused()) end
+        local ok, err = pcall(updateMovement)
+        if not ok then
+            self.LastError = tostring(err)
+            self:Stop()
+            show("Movement error; see LastError")
+        end
+    end)
+    show("Running")
+    worker = task.spawn(function()
+        while self.Enabled and not destroyed do
+            if not busy then
+                busy = true
+                local ok, err = pcall(step)
+                busy = false
+                if not ok then
+                    self.LastError = tostring(err)
+                    self.Enabled = false
+                    if movementConnection then movementConnection:Disconnect() movementConnection = nil end
+                    movementTarget = nil
+                    clearMovement()
+                    if activeActor then activeActor:SetAttribute("AOTRAKEnabled", false) end
+                    restoreNapes()
+                    show("Error — press START to retry")
+                    warn("[AOTR AutoKill v2] " .. self.LastError)
+                    break
+                end
+            end
+            task.wait(self.Interval)
+        end
+    end)
+end
+
+function controller:Destroy()
+    self:Stop();destroyed=true
+    if env.AOTRAutoKill==self then env.AOTRAutoKill=nil end
+end
+return controller
+
+]======]
+    local routeSource=[======[
+local bridge = ...
+-- Asta Auto Thunder Spears. Run with other mission/prestige automation disabled.
+if not game:IsLoaded() then game.Loaded:Wait() end
+local env=getgenv()
+local Players=game:GetService("Players")
+while not Players.LocalPlayer do task.wait(.1) end
+local player=Players.LocalPlayer
+local previous=env.AstaAutoThunderSpear
+if previous then previous:Stop() end
+if env.AstaThunderRoute then env.AstaThunderRoute.Running=false end
+if env.AstaTowerWorker then env.AstaTowerWorker.running=false end
+local state={Running=true,Status="Starting"}
+env.AstaAutoThunderSpear=state
+local combat
+function state:Stop()
+    self.Running=false
+    if combat then combat:Stop() end
+    bridge.Done(self)
+end
+local function active()return state.Running and env.AstaAutoThunderSpear==state end
+local function report(message)
+    if state.Status~=message then state.Status=message;print("[Auto Thunder Spears] "..message)end
+end
+local storage=game:GetService("ReplicatedStorage")
+local remotes=storage:WaitForChild("Assets",30):WaitForChild("Remotes",30)
+local GET,POST=remotes:WaitForChild("GET",15),remotes:WaitForChild("POST",15)
+local cs=game:GetService("CollectionService")
+local stages={
+ {Tag="Towers",Goal=3,Map="Outskirts"},
+ {Tag="Escort",Goal=1,Map="Outskirts"},
+ {Tag="Ice Burst Stones",Goal=3,Map="Utgard"},
+ {Tag="Retrieve Missing Supplies",Goal=3,Map="Forest"},
+ {Tag="Defend Missing Supplies",Goal=1,Map="Forest"},
+}
+local slotKey
+local function snapshot()
+    local ok,d=pcall(function()return GET:InvokeServer("Functions","Settings","Music",2)end)
+    local slot=ok and type(d)=="table" and type(d.Slots)=="table" and d.Slots[d.Current_Slot]
+    if type(slot)~="table" or type(slot.Quests)~="table" or type(slot.Quests.Spears)~="table" then return nil end
+    if slotKey and d.Current_Slot~=slotKey then error("Slot changed; run again for the new slot")end
+    slotKey=d.Current_Slot;return slot
+end
+local function getSnapshot()
+    for _=1,5 do if not active()then return nil end;local s=snapshot();if s then return s end;task.wait(2)end
+    error("Account data unavailable; no mission change was sent")
+end
+local function goal(s,i)return tonumber((s.Quests.Spears[i]or{}).Current)or 0 end
+local function plan(s)
+    if s.Has_Spears==true then return nil end
+    for i,stage in stages do
+        local q=s.Quests.Spears[i]
+        if not q or goal(s,i)<stage.Goal or not q.Rewarded then return i end
+    end
+    error("Quests claimed but Has_Spears not confirmed; verify account manually")
+end
+local function claimReady(s)
+    for i,stage in stages do
+        if not active()then return s end
+        local q=s.Quests.Spears[i]
+        if not q or goal(s,i)<stage.Goal then break end
+        if not q.Rewarded then
+            report("Claiming "..stage.Tag)
+            GET:InvokeServer("Functions","Quest",stage.Tag,"Spears")
+            task.wait(.6);s=getSnapshot()
+            if not s then return nil end
+            if not (s.Quests.Spears[i]or{}).Rewarded then error("Reward unconfirmed: "..stage.Tag.."; run again in Lobby")end
+        end
+    end
+    return s
+end
+local function queueResume(key)
+    bridge.Queue(key)
+end
+local function key(s)
+    local a={tostring(slotKey)}
+    for i in stages do a[#a+1]=tostring(goal(s,i));a[#a+1]=tostring((s.Quests.Spears[i]or{}).Rewarded)end
+    return table.concat(a,":")
+end
+local function lobby(s)
+    if combat then combat:Stop()end
+    queueResume(key(s));report("Returning to Lobby to claim/check progress")
+    POST:FireServer("Functions","Teleport","Lobby",nil)
+end
+local function results()
+    local ui=player.PlayerGui:FindFirstChild("Interface")
+    local r=ui and ui:FindFirstChild("Rewards")
+    local b=r and r:FindFirstChild("Retry",true)
+    if not b or not b:IsA("GuiButton")or not b.Active then return false end
+    local a=b
+    while a and a~=player.PlayerGui do
+        if a:IsA("GuiObject")and not a.Visible then return false end
+        if a:IsA("ScreenGui")and not a.Enabled then return false end
+        a=a.Parent
+    end
+    return true
+end
+local function aliveCount()
+    local n=0
+    local f=workspace:FindFirstChild("Titans")
+    if f then for _,t in f:GetChildren()do local h=t:FindFirstChildWhichIsA("Humanoid");if h and h.Health>0 then n+=1 end end end
+    return n
+end
+local function near(pos,radius)
+    local f=workspace:FindFirstChild("Titans")
+    if f then for _,t in f:GetChildren()do
+        local h=t:FindFirstChildWhichIsA("Humanoid");local r=t:FindFirstChild("HumanoidRootPart")or t.PrimaryPart
+        if h and h.Health>0 and r and (Vector3.new(r.Position.X,0,r.Position.Z)-Vector3.new(pos.X,0,pos.Z)).Magnitude<radius then return true end
+    end end
+    return false
+end
+local function fight(range,count)
+    combat.AutoRetry=false;combat.AutoMove=true;combat.Range=range;combat.MaxTargets=count or 9
+    if not combat.Enabled then combat:Start()end
+end
+local function hold(root,pos)
+    root.CFrame=CFrame.new(pos);root.AssemblyLinearVelocity=Vector3.zero
+end
+local function run()
+    local s=getSnapshot();if not s then return end
+    local lobbyNow=workspace:GetAttribute("Map")=="Lobby" or game.PlaceId==14916516914
+    if s.Has_Spears==true then report("Complete: Thunder Spears already unlocked");return end
+    assert(s.Progression and (tonumber(s.Progression.Prestige)or 0)>0,"Prestige 1 required")
+    if lobbyNow then
+        s=claimReady(s);if not s then return end
+        local i=plan(s)
+        if not i then report("Complete: Has_Spears confirmed");return end
+        local map=stages[i].Map
+        -- Do not leave somebody else's existing mission party.
+        for _,p in storage.Missions:GetChildren()do
+            local leader=p:FindFirstChild("Leader")
+            if leader and leader.Value==player.Name then GET:InvokeServer("S_Missions","Leave");break end
+        end
+        report("Starting "..map.." / Skirmish / Aberrant")
+        local p=GET:InvokeServer("S_Missions","Create",{Name=map,Type="Missions",Objective="Skirmish",Difficulty="Aberrant"})
+        assert(typeof(p)=="Instance" and p.Name==map and p.Value=="Aberrant" and p:GetAttribute("Objective")=="Skirmish","Mission creation not verified")
+        if not active()then return end
+        queueResume(key(s));GET:InvokeServer("S_Missions","Start");return
+    end
+    local maps={[13904207646]="Outskirts",[14638336319]="Forest"}
+    local i=plan(s);if not i then report("Complete: Has_Spears confirmed");return end
+    local map=maps[game.PlaceId]
+    -- The Utgard place ID is resolved by the mission's map assets/name below.
+    if not map then
+        local ok,info=pcall(function()return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId)end)
+        if ok and tostring(info.Name):find("Utgard",1,true)then map="Utgard"end
+    end
+    if map~=stages[i].Map or workspace:GetAttribute("Objective")~="Skirmish" then lobby(s);return end
+    assert(workspace:WaitForChild("Titans",90),"Titans unavailable")
+    combat=bridge.GetCombat()
+    assert(combat,"Combat controller unavailable")
+    combat:Stop();combat.AutoRetry=false
+    local deadline=os.clock()+1500
+    local lastRead=-math.huge
+    local pickupAt=setmetatable({},{__mode="k"})
+    while active() and os.clock()<deadline do
+        local c=player.Character;local h=c and c:FindFirstChildWhichIsA("Humanoid");local root=c and c:FindFirstChild("HumanoidRootPart")
+        if not h or h.Health<=0 or not root then report("Character unavailable; recovering in Lobby");lobby(s);return end
+        if results() then lobby(getSnapshot()or s);return end
+        if os.clock()-lastRead>4 then local fresh=snapshot();lastRead=os.clock();if fresh then s=fresh end end
+        local targetIndex=plan(s)
+        if not targetIndex then report("Complete: Has_Spears confirmed");return end
+        if stages[targetIndex].Map~=map then lobby(s);return end
+        if map=="Utgard" then
+            report("Utgard: clearing Ice Burst Titans");fight(9999,9)
+            if goal(s,3)>=3 then lobby(s);return end
+        elseif map=="Outskirts" then
+            if goal(s,1)<3 then
+                local tower=cs:GetTagged("TS_Towers")[1]
+                if tower and tower.PrimaryPart then
+                    local pos=tower.PrimaryPart.Position
+                    if near(pos,240)then
+                        report("Securing "..tower.Name)
+                        if not combat.Enabled then hold(root,pos+Vector3.new(0,200,0))end
+                        fight(450,9)
+                    else
+                        combat:Stop();report("Building "..tower.Name)
+                        root.CFrame=tower.PrimaryPart.CFrame+Vector3.new(0,3,0);root.AssemblyLinearVelocity=Vector3.zero
+                    end
+                else report("Waiting for native watch tower")end
+            else
+                local folder=workspace:FindFirstChild("Unclimbable")
+                local objectives=folder and folder:FindFirstChild("Objective")
+                local cart=objectives and objectives:FindFirstChild("Escort")
+                if cart then
+                    report("Protecting special cart in Skirmish");fight(9999,9)
+                else
+                    combat:Stop();report("Waiting near special-cart spawn region")
+                    local templates=storage:FindFirstChild("ThunderSpear_WatchTowers")
+                    local tower=templates and templates:FindFirstChild("WatchTower_3")
+                    if tower then hold(root,tower:GetPivot().Position+Vector3.new(0,200,0))end
+                end
+                if goal(s,2)>=1 then lobby(s);return end
+            end
+        elseif map=="Forest" then
+            local folder=workspace:FindFirstChild("Unclimbable")
+            local objects=folder and folder:FindFirstChild("Objective")
+            local defense=objects and objects:FindFirstChild("Defend_Supplies")
+            if defense then
+                report("Defending supplies")
+                if not combat.Enabled then hold(root,defense:GetPivot().Position+Vector3.new(0,200,0))end
+                combat.Interval=.15;fight(650,9)
+                if goal(s,5)>=1 then lobby(s);return end
+            elseif goal(s,4)<3 then
+                local item
+                if folder then for _,name in {"ThunderSpear_Supplies1","ThunderSpear_Supplies2","ThunderSpear_Supplies3"}do
+                    local a=folder:FindFirstChild(name)
+                    if a and a:FindFirstChild("Hitbox")and os.clock()-(pickupAt[a]or -math.huge)>5 then item=a;break end
+                end end
+                local circle=folder and folder:FindFirstChild("Supplies_Circle")
+                if aliveCount()>8 then
+                    report("Securing Forest before collecting");fight(9999,3)
+                elseif item and circle and circle:FindFirstChild("Hitbox")then
+                    if near(item.Hitbox.Position,300)or near(circle.Hitbox.Position,300)then
+                        report("Clearing threats near supply route");fight(650,1)
+                    else
+                        combat:Stop();report("Delivering "..item.Name);pickupAt[item]=os.clock()
+                        root.CFrame=item.Hitbox.CFrame;root.AssemblyLinearVelocity=Vector3.zero;task.wait(.7)
+                        if not active()or player.Character~=c or h.Health<=0 then return end
+                        root.CFrame=circle.Hitbox.CFrame;root.AssemblyLinearVelocity=Vector3.zero;task.wait(.7)
+                        if active()and player.Character==c and h.Health>0 then hold(root,circle.Hitbox.Position+Vector3.new(0,200,0))end
+                        lastRead=-math.huge
+                    end
+                else combat:Stop();report("Waiting for supply crates / defense event")end
+            else combat:Stop();report("Waiting for native supply defense event")end
+        end
+        task.wait(.1)
+    end
+    if active()then error("Mission phase timed out; no automatic endless retry")end
+end
+local ok,err=pcall(run)
+if combat then combat:Stop()end
+state.Running=false
+bridge.Done(state)
+if not ok then report("Stopped: "..tostring(err));warn("[Auto Thunder Spears] "..tostring(err))end
+
+]======]
+    env.AstaGetBladeCombat=function()
+        if env.AstaBladeController then return env.AstaBladeController end
+        assert(type(run_on_actor)=="function" and type(filtergc)=="function","Native Blade requires run_on_actor/filtergc")
+        local controller=assert(loadstring(factorySource))({Paused=function()
+            return AstaPrestigeExclusive.held or env.IsReloading or env.IsRefilling
+        end})
+        env.AstaBladeController=controller
+        return controller
+    end
+    env.AstaStartThunderQuest=function()
+        if env.AstaAutoThunderSpear and env.AstaAutoThunderSpear.Running then return end
+        env.AstaTSOwns=true
+        local savedReload=env.AutoReloadBlade
+        local savedReloadConfig=CONFIG.Mission.AutoReload
+        env.AutoReloadBlade=true
+        if type(CleanupSmoothMovement)=="function" then CleanupSmoothMovement()end
+        local teleportPending=false
+        local bridge={GetCombat=env.AstaGetBladeCombat}
+        bridge.Queue=function(key)
+            assert(type(queue_on_teleport)=="function" and type(readfile)=="function","Teleport continuation unavailable")
+            local count=env.AstaTSRetryKey==key and (env.AstaTSRetryCount or 0)+1 or 1
+            assert(count<=6,"Quest did not advance after six transitions")
+            env.AstaTSRetryKey,env.AstaTSRetryCount=key,count
+            local path="Asta_AOTR_Prestige_AutoResume_"..game.Players.LocalPlayer.UserId..".luau"
+            if type(isfile)=="function" then assert(isfile(path),"Main auto-resume source was not saved")end
+            local config=game:GetService("HttpService"):JSONEncode(CONFIG)
+            local code=string.format('getgenv().AstaThunderResume=true;getgenv().AstaTSRetryKey=%q;getgenv().AstaTSRetryCount=%d;getgenv().AstaPrestigeResumeConfig=game:GetService("HttpService"):JSONDecode(%q);loadstring(readfile(%q))()',key,count,config,path)
+            queue_on_teleport(code)
+            teleportPending=true
+        end
+        bridge.Done=function(owner)
+            if env.AstaAutoThunderSpear~=owner then return end
+            if teleportPending then return end
+            env.AstaTSOwns=false
+            CONFIG.Mission.AutoReload=savedReloadConfig
+            env.AutoReloadBlade=savedReload
+        end
+        task.spawn(function()
+            local ok,err=pcall(function()assert(loadstring(routeSource))(bridge)end)
+            if not ok then
+                env.AstaTSOwns=false;CONFIG.Mission.AutoReload=savedReloadConfig;env.AutoReloadBlade=savedReload
+                if env.AstaAutoThunderSpear then env.AstaAutoThunderSpear.Running=false end
+                if env.AstaBladeController then env.AstaBladeController:Stop()end
+                _AstaOriginalWarn("[Auto Thunder Spears] "..tostring(err))
+            end
+        end)
+    end
+    env.AstaStopThunderQuest=function()
+        if env.AstaAutoThunderSpear then env.AstaAutoThunderSpear:Stop()end
+        env.AstaTSOwns=false
+    end
+end
+
 local function IsMainmenuLobby() return PlaceId == MAIN_MENU_ID end
 local function IsLobbyLobby() return PlaceId == LOBBY_ID or PlaceId == TRADE_LOBBY_ID end
 local function IsIngameLobby() return not IsMainmenuLobby() and not IsLobbyLobby() end
@@ -1832,6 +2703,12 @@ if IsLobbyLobby() then
         end
 
         local function readBoostTimer(boostType)
+            local boosts=Player:FindFirstChild("Boosts")
+            local live=boosts and boosts:FindFirstChild(boostType)
+            if live and (live:IsA("IntValue")or live:IsA("NumberValue"))then
+                local seconds=tonumber(live.Value)
+                if seconds and seconds>=0 then return seconds end
+            end
             local paths = {
                 function()
                     return Player.PlayerGui.Interface.Gear_Up.Boosts[boostType].Time.Time
@@ -2278,6 +3155,25 @@ if IsLobbyLobby() then
 
         local potionState = getgenv().AstaPotionState or {types = {}}
         getgenv().AstaPotionState = potionState
+        local potionGeneration={}
+        getgenv().AstaPotionWorkerVersion=potionGeneration
+        potionState.busy=false
+        local function potionWindow(callback)
+            if getgenv().AstaPotionWorkerVersion~=potionGeneration or potionState.busy
+                or missionQuietActive() or AstaPrestigeExclusive.held then return false end
+            potionState.busy=true
+            local owner=coroutine.running()
+            AstaMissionQuiet.owner=owner;AstaMissionQuiet.untilTime=os.clock()+35
+            AstaMissionQuiet.isValid=function()
+                return getgenv().AstaPotionWorkerVersion==potionGeneration and potionState.busy
+                    and workspace:GetAttribute("Map")=="Lobby"
+            end
+            local ok,result=pcall(function()task.wait(.35);return callback()end)
+            if AstaMissionQuiet.owner==owner then AstaMissionQuiet.owner=nil end
+            potionState.busy=false
+            if not ok then warn("[Potions] "..tostring(result))end
+            return ok and result or false
+        end
         local inventoryPotions = true
         local function potionType(name)
             local n = string.lower(tostring(name))
@@ -2286,18 +3182,49 @@ if IsLobbyLobby() then
             if n:find("luck", 1, true) then return "Luck" end
             if n:find("xp", 1, true) then return "XP" end
         end
-        local function readPotionInventory()
-            local key = Player:GetAttribute("Slot")
-            if not key then return nil end
-            task.wait(0.3)
-            local data = GET:InvokeServer(AstaAwaitPrestige("Functions", "Settings", "Music", 25))
-            local slot = type(data) == "table" and type(data.Slots) == "table" and data.Slots[key]
-            if Player:GetAttribute("Slot") ~= key or (data and type(data)=="table"
-                and data.Current_Slot and data.Current_Slot ~= key) then return nil end
-            local items = slot and slot.Inventory and slot.Inventory.Items
-            if type(items) ~= "table" then return nil end
-            return items, key
+        local potionSnapshot
+        local potionSnapshotKey
+        local function potionSlotCurrent(key)
+            local live=Player:GetAttribute("Slot")
+            return key~=nil and (live==nil or tostring(live)==tostring(key))
+                and potionSnapshotKey==key
         end
+        local function readPotionInventory()
+            if workspace:GetAttribute("Map")~="Lobby"then return nil end
+            local data=GET:InvokeServer(AstaAwaitPrestige("Functions","Settings","Music",2))
+            if type(data)~="table"or type(data.Slots)~="table"then return nil end
+            local key=data.Current_Slot or data.CurrentSlot
+            if key~=nil then key=tostring(key)end
+            local live=Player:GetAttribute("Slot")
+            if not key or (live~=nil and tostring(live)~=key)then return nil end
+            local slot=data.Slots and data.Slots[key]
+            local items=type(slot)=="table"and type(slot.Inventory)=="table"and slot.Inventory.Items
+            if type(items)~="table"then return nil end
+            potionSnapshot,potionSnapshotKey=slot,key
+            return items,key
+        end
+        local function potionMarket(kind,slot,shop)
+            local expected=string.lower("2x "..kind.." Boost [2h]")
+            local currency=slot and slot.Currency or {}
+            local function find(category,unit)
+                for id,item in pairs(type(shop[category])=="table"and shop[category]or {})do
+                    local cost=type(item)=="table"and tonumber(item.Cost)
+                    if type(item)=="table"and item.Currency==unit
+                        and string.lower(tostring(item.Tag))==expected
+                        and cost and cost>0 and cost<math.huge
+                        and type(currency[unit])=="number"and currency[unit]>=cost then
+                        return {Category=category,Id=id,Cost=cost,Currency=unit}
+                    end
+                end
+            end
+            if kind=="Luck"then return find("2_Boosts","Pumpkins")end
+            if not CONFIG.Lobby.Boosts or CONFIG.Lobby.Boosts.PreferPumpkins~=false then
+                local event=find("2_Boosts","Pumpkins")
+                if event then return event end
+            end
+            return find("1_Boosts","Gems")
+        end
+
         local function chooseOwned(items, kind)
             local best, bestDuration
             for name, count in pairs(items) do
@@ -2314,75 +3241,138 @@ if IsLobbyLobby() then
             return best
         end
         local function xpBelowMax()
-            local p, level = Player:GetAttribute("Prestige"), Player:GetAttribute("Level")
-            return type(p)=="number" and type(level)=="number" and p>=0 and p<=5
-                and p%1==0 and level>=0 and level < 100+p*25
+            local progress=potionSnapshot and potionSnapshot.Progression
+            local p,level=progress and progress.Prestige,progress and progress.Level
+            local liveP,liveL=Player:GetAttribute("Prestige"),Player:GetAttribute("Level")
+            if liveP~=nil and liveP~=p or liveL~=nil and liveL~=level then return false end
+            return type(p)=="number"and type(level)=="number"and p>=0 and p<=5
+                and p%1==0 and level>=0 and level<100+p*25
         end
-        local function managePotion(kind, allowBuy, items, key)
-            if workspace:GetAttribute("Map") ~= "Lobby" or Player:GetAttribute("Slot") ~= key then return false end
-            local stateKey = tostring(Player.UserId)..":"..tostring(key)..":"..kind
-            local st = potionState.types[stateKey] or {}
-            potionState.types[stateKey] = st
-            local seconds = readBoostTimer(kind)
-            if seconds == nil then return false end
-            if seconds > 0 then
-                st.activeUntil = tick()+seconds
-                st.pendingBuy, st.pendingUse = nil, nil
+        local function potionTimerWait(kind,seconds)
+            local deadline=os.clock()+seconds
+            repeat
+                local value=readBoostTimer(kind)
+                if value and value>0 then return value end
+                task.wait(.15)
+            until os.clock()>=deadline
+        end
+        local function managePotion(kind,allowBuy,items,key)
+            if workspace:GetAttribute("Map")~="Lobby"or not potionSlotCurrent(key)then return false end
+            local stateKey=tostring(Player.UserId)..":"..key..":"..kind
+            local st=potionState.types[stateKey]or {}
+            potionState.types[stateKey]=st
+            local seconds=readBoostTimer(kind)
+            if seconds==nil then return false end
+            if seconds>0 then
+                st.activeUntil=tick()+seconds;st.pendingBuy=nil;st.pendingUse=nil;st.useRecord=nil;st.buyRecord=nil
+                st.useAttempts=0;st.buyAttempts=0
                 return false
             end
-            if st.pendingUse or tick() < (st.activeUntil or 0) then return false end
-            -- XP is also preserved in inventory at max level.
-            if kind == "XP" and not xpBelowMax() then return false end
-            local owned = chooseOwned(items, kind)
-            if owned and (inventoryPotions or st.pendingBuy) then
-                st.pendingUse = true
-                GET:InvokeServer(AstaAwaitPrestige("S_Inventory", "Item", owned))
-                print("[Potions] Use requested: "..owned.."; awaiting active timer")
+            st.activeUntil=0 -- An authoritative zero overrides an old local estimate.
+            if kind=="XP"and not xpBelowMax()then return false end
+            local owned=chooseOwned(items,kind)
+            if st.pendingUse then
+                local record=st.useRecord
+                -- Recover the legacy permanent lock only with verified unchanged inventory.
+                if not record and owned then st.pendingUse=nil
+                elseif record and os.clock()-record.at>=5 then
+                    local current=tonumber(items[record.name])or 0
+                    if current>=record.count and (st.useAttempts or 0)<3 then
+                        st.pendingUse=nil
+                    else return false end
+                else return false end
+            end
+            if owned and (inventoryPotions or st.pendingBuy)then
+                if os.clock()<(st.useRetryAt or 0)or (st.useAttempts or 0)>=3 then return false end
+                local check=readBoostTimer(kind)
+                if check==nil or check>0 then return false end
+                st.pendingUse=true
+                st.useAttempts=(st.useAttempts or 0)+1
+                st.useRecord={name=owned,count=tonumber(items[owned])or 0,at=os.clock()}
+                local ok,response=pcall(function()return GET:InvokeServer(AstaAwaitPrestige("S_Inventory","Item",owned))end)
+                local active=potionTimerWait(kind,2)
+                if active then
+                    st.activeUntil=tick()+active;st.pendingUse=nil;st.pendingBuy=nil;st.useRecord=nil;st.buyRecord=nil
+                    st.useAttempts=0;st.buyAttempts=0
+                    print("[Potions] Activation confirmed: "..owned.." | "..math.floor(active).."s")
+                    return true
+                end
+                local fresh,freshKey=readPotionInventory()
+                local unchanged=freshKey==key and fresh and (tonumber(fresh[owned])or 0)>=st.useRecord.count
+                if ok and unchanged and readBoostTimer(kind)==0 then
+                    st.pendingUse=nil;st.useRetryAt=os.clock()+5
+                    print("[Potions] Use not applied: "..owned.."; retry delayed, no purchase")
+                else
+                    print("[Potions] Use result pending: "..owned.."; no duplicate use or purchase")
+                end
                 return true
             end
-            if owned or st.pendingBuy or not allowBuy then return false end
-            local prestige = Player:GetAttribute("Prestige")
-            if kind == "Gold" and (type(prestige)~="number" or prestige>=5) then return false end
-            local id = ({Gold=9, Luck=6, XP=3})[kind]
-            if not id then return false end
-            -- A second readable zero is required immediately before purchasing.
-            task.wait(0.3)
-            local check = readBoostTimer(kind)
-            if check == nil or check > 0 or Player:GetAttribute("Slot") ~= key
-                or workspace:GetAttribute("Map") ~= "Lobby"
-                or (kind == "XP" and not xpBelowMax()) then return false end
-            st.pendingBuy = true
-            GET:InvokeServer(AstaAwaitPrestige("S_Market", "Buy", "1_Boosts", id, 1))
-            print("[Potions] One 2h "..kind.." purchase requested; inventory confirmation required")
-            return true
-        end
-        local function runBoostCycle()
-            if potionState.busy then return end
-            potionState.busy = true
-            local ok, err = pcall(function()
-                if workspace:GetAttribute("Map") ~= "Lobby" then return end
-                local items, key = readPotionInventory()
-                if not items then return end
-                for _, kind in ipairs({"XP", "Gold", "Luck"}) do
-                    managePotion(kind, boostState.selected[kind] == true, items, key)
-                    task.wait(0.2)
+            if owned or st.pendingBuy or not allowBuy or os.clock()<(st.buyRetryAt or 0)then return false end
+            if (st.buyAttempts or 0)>=3 then return false end
+            local prestige=potionSnapshot and potionSnapshot.Progression and potionSnapshot.Progression.Prestige
+            if kind=="Gold"and(type(prestige)~="number"or prestige>=5)then return false end
+            local fresh,freshKey=readPotionInventory()
+            if freshKey~=key or not fresh or not potionSlotCurrent(key)then return false end
+            if chooseOwned(fresh,kind)then return false end
+            if kind=="XP"and not xpBelowMax()then return false end
+            local ok,shop=pcall(function()return require(game.ReplicatedStorage.Modules.Storage.Shop)end)
+            local offer=ok and type(shop)=="table"and potionMarket(kind,potionSnapshot,shop)
+            if not offer then return false end
+            task.wait(.3)
+            if readBoostTimer(kind)~=0 or not potionSlotCurrent(key)then return false end
+            local beforeBalance=potionSnapshot.Currency[offer.Currency]
+            local name=shop[offer.Category][offer.Id].Tag
+            local beforeCount=tonumber(fresh[name])or 0
+            st.pendingBuy=true;st.purchaseCurrency=offer.Currency
+            st.buyAttempts=(st.buyAttempts or 0)+1
+            st.buyRecord={name=name,balance=beforeBalance,currency=offer.Currency,count=beforeCount,at=os.clock()}
+            local sent,response=pcall(function()
+                return GET:InvokeServer(AstaAwaitPrestige("S_Market","Buy",offer.Category,offer.Id,1))
+            end)
+            local after,afterKey
+            for attempt=1,3 do
+                task.wait(.2*attempt)
+                after,afterKey=readPotionInventory()
+                if afterKey==key and after and (tonumber(after[name])or 0)>beforeCount then
+                    print("[Potions] Purchase confirmed: "..name.." with "..offer.Currency)
+                    return managePotion(kind,false,after,key)
                 end
-            end)
-            potionState.busy = false
-            if not ok then warn("[Potions] Request unconfirmed: "..tostring(err)) end
+                local active=readBoostTimer(kind)
+                if active and active>0 then
+                    st.pendingBuy=nil;st.pendingUse=nil;st.activeUntil=tick()+active
+                    print("[Potions] Active timer confirmed after purchase")
+                    return true
+                end
+            end
+            local balance=potionSnapshot and potionSnapshot.Currency and potionSnapshot.Currency[offer.Currency]
+            if sent and afterKey==key and after and (tonumber(after[name])or 0)==beforeCount
+                and balance==beforeBalance and readBoostTimer(kind)==0 then
+                st.pendingBuy=nil;st.buyRetryAt=os.clock()+15
+                print("[Potions] Purchase not applied; balance and inventory unchanged, retry delayed")
+            else
+                print("[Potions] Purchase outcome pending; no duplicate purchase")
+            end
+            return false
         end
-        -- Route the other boost panel through the same per-type locks.
-        getgenv().AstaPotionRequest = function(name, buy)
-            local kind = potionType(name)
-            if not kind or potionState.busy then return false end
-            potionState.busy = true
-            local ok, result = pcall(function()
-                local items, key = readPotionInventory()
-                if not items then return false end
-                return managePotion(kind, buy == true, items, key)
+
+        local function runBoostCycle()
+            return potionWindow(function()
+                if workspace:GetAttribute("Map")~="Lobby"then return false end
+                for _,kind in ipairs({"XP","Gold","Luck"})do
+                    local items,key=readPotionInventory()
+                    if items then managePotion(kind,boostState.selected[kind]==true,items,key)end
+                end
+                return true
             end)
-            potionState.busy = false
-            return ok and result == true
+        end
+        getgenv().AstaPotionRequest=function(name,buy)
+            local kind=potionType(name)
+            if not kind then return false end
+            return potionWindow(function()
+                local items,key=readPotionInventory()
+                if not items then return false end
+                return managePotion(kind,buy==true,items,key)
+            end)
         end
         BoostGroup:AddToggle("AutoBoost_Inventory", {
             Text = "Auto Use Inventory Potions", Default = true,
@@ -2681,49 +3671,168 @@ if IsLobbyLobby() then
 end
 
 -- Shared, serialized account snapshot for Skills and Perks.
+-- Slot resolution now falls back to the server's Current_Slot from Data/Copy
+-- when the client Player attribute is temporarily missing (Slot=nil).
 local equipmentSnapshot = {time = -math.huge, busy = false}
 local equipmentVersion = {}
 getgenv().AstaEquipmentWorkerVersion = equipmentVersion
-local function readEquipmentData(force)
+
+local function normalizeEquipmentSlot(value)
+    if value == nil then return nil end
+    local key = tostring(value)
+    if key == "" then return nil end
+    return key
+end
+
+local function equipmentSlotStillCurrent(player, key)
+    local liveKey = normalizeEquipmentSlot(player:GetAttribute("Slot"))
+    return liveKey == nil or liveKey == normalizeEquipmentSlot(key)
+end
+
+local function publishEquipmentData(data,key)
+    if getgenv().AstaEquipmentWorkerVersion~=equipmentVersion then return false end
+    if type(data)~="table" or type(data.Slots)~="table" then return false end
+    local server=normalizeEquipmentSlot(data.Current_Slot or data.CurrentSlot)
+    if server and server~=key then return false end
+    if type(data.Slots[key])~="table" then return false end
+    if not equipmentSlotStillCurrent(game.Players.LocalPlayer,key) then return false end
+    equipmentSnapshot.data,equipmentSnapshot.key,equipmentSnapshot.time=data,key,os.clock()
+    return true
+end
+
+local equipmentRemoteBusy=false
+local function equipmentInvoke(key,route,action,...)
+    while getgenv().AstaModifiersApplying or missionQuietActive() do task.wait(.05)end
+    local deadline=os.clock()+12
+    while equipmentRemoteBusy and os.clock()<deadline do task.wait(.025)end
+    if equipmentRemoteBusy or getgenv().AstaEquipmentWorkerVersion~=equipmentVersion then return nil end
+    if AstaPrestigeExclusive.held or workspace:GetAttribute("Map")~="Lobby" then return nil end
+    local player=game.Players.LocalPlayer
+    if key and not equipmentSlotStillCurrent(player,key)then return nil end
+    equipmentRemoteBusy=true
+    if route=="S_Equipment"or (route=="Functions"and (action=="Tier"or action=="Battlepass"))then equipmentSnapshot.time=-math.huge end
+    local args=table.pack(...)
+    local ok,values=pcall(function()
+        return table.pack(game.ReplicatedStorage.Assets.Remotes.GET:InvokeServer(route,action,table.unpack(args,1,args.n)))
+    end)
+    if ok then
+        local d=values[1]
+        local resolved=key or type(d)=="table" and normalizeEquipmentSlot(d.Current_Slot or d.CurrentSlot)
+        if resolved then publishEquipmentData(d,resolved)end
+    end
+    equipmentRemoteBusy=false
+    if not ok then warn("[Equipment] "..tostring(values));return nil end
+    return table.unpack(values,1,values.n)
+end
+
+local function readEquipmentData(force, expectedKey, requiredKind)
     local player = game:GetService("Players").LocalPlayer
-    local key = player:GetAttribute("Slot")
-    if not key then return nil end
+    if not player then return nil end
+
     local function usable(data)
-        local slot = type(data) == "table" and type(data.Slots) == "table" and data.Slots[key]
-        return slot and type(slot.Skills) == "table" and type(slot.Skills.Unlocked) == "table"
-            and type(slot.Skills.Hotbar) == "table" and type(slot.Perks) == "table"
-            and (not data.Current_Slot or data.Current_Slot == key)
+        if type(data) ~= "table" or type(data.Slots) ~= "table" then return nil end
+
+        local playerKey = normalizeEquipmentSlot(player:GetAttribute("Slot"))
+        local wantedKey = normalizeEquipmentSlot(expectedKey) or playerKey
+        local serverKey = normalizeEquipmentSlot(data.Current_Slot or data.CurrentSlot)
+
+        -- Never read a different slot if the server and client disagree.
+        if wantedKey and serverKey and wantedKey ~= serverKey then return nil end
+        local key = serverKey or wantedKey
+
+        -- If both slot markers are absent, only infer a slot when exactly one
+        -- account slot exists. Do not silently assume A when multiple slots exist.
+        if not key then
+            local count, onlyKey = 0, nil
+            for _, candidate in ipairs({"A", "B", "C"}) do
+                if type(data.Slots[candidate]) == "table" then
+                    count += 1
+                    onlyKey = candidate
+                end
+            end
+            if count == 1 then key = onlyKey end
+        end
+
+        if not key or type(data.Slots[key]) ~= "table" then return nil end
+        local slot = data.Slots[key]
+        local skills = slot.Skills
+        local hasSkills = type(skills) == "table"
+            and type(skills.Unlocked) == "table"
+            and type(skills.Hotbar) == "table"
+        local hasPerks = type(slot.Perks) == "table"
+
+        if requiredKind == "skills" and not hasSkills then return nil end
+        if requiredKind == "tree" and not(type(skills)=="table"and type(skills.Unlocked)=="table")then return nil end
+        if requiredKind == "perks" and not hasPerks then return nil end
+        if requiredKind=="battlepass"and not(type(slot.Battlepass)=="table"and type(slot.Battlepass.Claimed)=="table"and type(slot.Battlepass.Tier)=="number")then return nil end
+        if requiredKind == nil and not hasSkills and not hasPerks then return nil end
+        return key
     end
+
     local function recentData()
-        if equipmentSnapshot.key == key and os.clock() - equipmentSnapshot.time < 10
-            and usable(equipmentSnapshot.data) then return equipmentSnapshot.data end
+        if equipmentSnapshot.data and os.clock() - equipmentSnapshot.time < 10 then
+            local cachedKey = usable(equipmentSnapshot.data)
+            if cachedKey and cachedKey == equipmentSnapshot.key then
+                return equipmentSnapshot.data, cachedKey
+            end
+        end
+        return nil
     end
+
     local deadline = os.clock() + 15
     while equipmentSnapshot.busy and os.clock() < deadline do task.wait(0.05) end
-    if equipmentSnapshot.busy then return not force and recentData() or nil end
-    if not force and equipmentSnapshot.key == key and os.clock() - equipmentSnapshot.time < 3
-        and usable(equipmentSnapshot.data) then return equipmentSnapshot.data end
+    if equipmentSnapshot.busy then
+        if not force then return recentData() end
+        return nil
+    end
+
+    if equipmentSnapshot.data and os.clock() - equipmentSnapshot.time < (force and .15 or 1) then
+        local cachedKey = usable(equipmentSnapshot.data)
+        if cachedKey and cachedKey == equipmentSnapshot.key then
+            return equipmentSnapshot.data, cachedKey
+        end
+    end
+
     equipmentSnapshot.busy = true
-    local result
+    local result, resultKey
     local ok, err = pcall(function()
         local remote = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-        for attempt = 1, 6 do
+        -- Data/Copy is already used elsewhere in this script and returns the
+        -- account snapshot with its active slot. Keep the older Settings reads
+        -- as fallbacks for game versions that still expose them.
+        local requests = {
+            {"Functions", "Settings", "Music", 2},
+            {"Data", "Copy"},
+            {"Functions", "Settings", "Music", 25},
+        }
+
+        for attempt, args in ipairs(requests) do
             if workspace:GetAttribute("Map") ~= "Lobby" then break end
-            local setting = attempt % 2 == 1 and "Music" or "Effects"
-            task.wait(attempt == 1 and 0.3 or math.min(0.5 * attempt, 2))
+            if attempt>1 then task.wait(.15)end
             local sent, data = pcall(function()
-                return remote:InvokeServer(AstaAwaitPrestige("Functions", "Settings", setting,
-                    setting == "Music" and 25 or 67))
+                return equipmentInvoke(expectedKey,table.unpack(args))
             end)
-            if player:GetAttribute("Slot") ~= key then break end
-            if sent and usable(data) then result = data break end
+            if not equipmentSlotStillCurrent(player, expectedKey or player:GetAttribute("Slot")) then
+                break
+            end
+            local resolvedKey = sent and usable(data)
+            if resolvedKey then
+                result, resultKey = data, resolvedKey
+                break
+            end
         end
     end)
+
     equipmentSnapshot.busy = false
     if result then
-        equipmentSnapshot.data, equipmentSnapshot.key, equipmentSnapshot.time = result, key, os.clock()
-    elseif not ok then warn("[EquipmentData] " .. tostring(err)) end
-    return result or (not force and recentData() or nil)
+        equipmentSnapshot.data, equipmentSnapshot.key, equipmentSnapshot.time = result, resultKey, os.clock()
+        return result, resultKey
+    elseif not ok then
+        warn("[EquipmentData] " .. tostring(err))
+    end
+
+    if not force then return recentData() end
+    return nil
 end
 
 -- ============================================================
@@ -2840,20 +3949,23 @@ if IsLobbyLobby() then
         -- )
         -- =====================================================
 
+        local latestPerkKey
         local function collectAllPerks()
             latestPerkData = nil
+            latestPerkKey = nil
             local found = {}
             local seen = {}
 
-            local ok, data = pcall(function()
-                return readEquipmentData(false)
+            local ok, data, activeKey = pcall(function()
+                return readEquipmentData(false, nil, "perks")
             end)
 
             if ok and type(data) == "table" then
 
                 latestPerkData = data
-                local activeKey = game:GetService("Players").LocalPlayer:GetAttribute("Slot")
-                local activeSlot = data.Slots and data.Slots[activeKey]
+                latestPerkKey = activeKey or data.Current_Slot or data.CurrentSlot
+                    or game:GetService("Players").LocalPlayer:GetAttribute("Slot")
+                local activeSlot = data.Slots and data.Slots[latestPerkKey]
                 local storage = activeSlot and activeSlot.Perks and activeSlot.Perks.Storage
 
                 if type(storage) == "table" then
@@ -2938,29 +4050,47 @@ if IsLobbyLobby() then
             while true do
                 task.wait(0.25)
                 if getgenv().AstaEquipmentWorkerVersion ~= equipmentVersion then break end
-                if not equipEnabled or workspace:GetAttribute("Map") ~= "Lobby" then continue end
+                if not equipEnabled or equipmentSnapshot.treeBusy or workspace:GetAttribute("Map") ~= "Lobby" then continue end
                 local ok, err = pcall(function()
                     collectAllPerks()
                     local player = game:GetService("Players").LocalPlayer
-                    local key = player:GetAttribute("Slot")
                     local data = latestPerkData
+                    local key = latestPerkKey or player:GetAttribute("Slot")
+                        or (data and (data.Current_Slot or data.CurrentSlot))
+                    local liveKey = normalizeEquipmentSlot(player:GetAttribute("Slot"))
+                    if not key or (liveKey and liveKey ~= tostring(key)) then return end
                     local slot = data and data.Slots and data.Slots[key]
                     if not slot or not slot.Perks then return end
                     task.wait(0.2)
                     for _, entry in ipairs(planEquips(slot.Perks)) do
-                        if not equipEnabled or player:GetAttribute("Slot") ~= key
+                        if not equipEnabled or not equipmentSlotStillCurrent(player, key)
                             or workspace:GetAttribute("Map") ~= "Lobby" then break end
                         local requestKey = tostring(key) .. ":" .. entry.category .. ":" .. entry.uid
                         if os.clock() < (attempted[requestKey] or 0) then continue end
                         attempted[requestKey] = os.clock() + 10
-                        local response = GET:InvokeServer(AstaAwaitPrestige("S_Equipment", "Perk_State", entry.uid, "Equip", entry.category))
+                        if equipmentSnapshot.treeBusy then break end
+                        local fresh=readEquipmentData(true,key,"perks")
+                        local current=fresh and fresh.Slots and fresh.Slots[key]
+                        if not current or not current.Perks then break end
+                        local needed=false
+                        for _,choice in planEquips(current.Perks)do
+                            if choice.uid==entry.uid and choice.category==entry.category then needed=true;break end
+                        end
+                        if not needed then continue end
+                        local response = equipmentInvoke(key,"S_Equipment","Perk_State",entry.uid,entry.category)
+                        publishEquipmentData(response,key)
                         local updated = type(response) == "table" and response.Slots and response.Slots[key]
+                        if not updated then
+                            local refreshed=readEquipmentData(true,key,"perks")
+                            updated=refreshed and refreshed.Slots and refreshed.Slots[key]
+                        end
                         local confirmed = updated and updated.Perks and updated.Perks.Equipped
                             and updated.Perks.Equipped[entry.category] == entry.uid
                         print("[AutoPerks] " .. (confirmed and "Equipped " or "Unconfirmed ")
                             .. entry.name .. " -> " .. entry.category)
-                        if confirmed then
-                            equipmentSnapshot.data, equipmentSnapshot.key, equipmentSnapshot.time = response, key, os.clock()
+                        if not confirmed then
+                            attempted[requestKey]=os.clock()+30
+                            break
                         end
                         task.wait(0.2)
                     end
@@ -6398,6 +7528,7 @@ if not MissionGET then
 end
 
 local function SafeMissionCall(...)
+    if getgenv().AstaTSOwns then return false,nil end
     if not MissionGET then return false, nil end
     local args = {...}
     local success, result = pcall(function()
@@ -6477,7 +7608,8 @@ if Tabs.Lobby then
 
     local ModifiersList = {
         "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
-        "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
+        "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial",
+        "Boring", "Simple", "Evolution", "Fatigue"
     }
 
     local State_Mission = {
@@ -6493,6 +7625,7 @@ if Tabs.Lobby then
     local missionPendingStart = false
     local missionStartTask = nil
     local missionSelectionVersion = 0
+    local modifierRetryMission
 
     pcall(function()
         if Options and Options.MissionDropdown and Options.MissionDropdown.Value then
@@ -6670,6 +7803,16 @@ if Tabs.Lobby then
     end
 
     local function CreateMission(missionName, objective, difficulty)
+        local pending=modifierRetryMission
+        if pending and pending.Parent and GetMyMission(.08)==pending
+            and MissionMatchesTarget(pending,missionName) and pending.Value==difficulty
+            and pending:GetAttribute("Objective")==objective
+            and pending:GetAttribute("Type")=="Missions"
+            and pending:GetAttribute("Teleporting")~=true then
+            print("[Mission] Reusing mission; reconciling missing modifiers")
+            return true,pending
+        end
+        modifierRetryMission=nil
         for attempt = 1, 4 do
             if not missionRunning then
                 return false
@@ -6746,140 +7889,104 @@ if Tabs.Lobby then
     -- Modifiers (محسّن)
     -- ═══════════════════════════════════════════════════════════
 
-    local function ClearMissionModifiers()
-        if not missionRunning then return end
-        for _ = 1, 3 do
-            if not missionRunning then break end
-            SafeMissionCall("S_Missions", "ClearModifiers")
-            task.wait(0.18)
+    local verifiedModifierMission,verifiedModifierSet
+    local function modifierSet(value)
+        if type(value)~="string" then return nil end
+        local result={}
+        for token in string.gmatch(value,"[^,]+")do
+            local name=token:match("^%s*(.-)%s*$")
+            if name~=""then result[name]=true end
         end
-        task.wait(0.35)
+        return result
     end
-
-    local function ApplyModifier(mod)
-        local names = {mod}
-        local noSpace = mod:gsub("%s+", "")
-        if noSpace ~= mod then
-            table.insert(names, noSpace)
-        end
-
-        for _, name in ipairs(names) do
-            for attempt = 1, 4 do
-                if not missionRunning then return false end
-
-                local success, result = SafeMissionCall("S_Missions", "Modify", name)
-
-                if success then
-                    if result == true or result == "true" or result == 1 then
-                        return true
-                    end
-                    if type(result) == "table" and (result.Success == true or result.success == true) then
-                        return true
-                    end
-                end
-
-                task.wait(0.18 + (attempt * 0.05))
+    local function sameModifiers(actual,wanted)
+        if not actual then return false end
+        for name in pairs(wanted)do if not actual[name]then return false end end
+        for name in pairs(actual)do if not wanted[name]then return false end end
+        return true
+    end
+    local function modifierMissionCurrent(mission)
+        if not missionRunning or getgenv().AstaTSOwns or not mission or not mission.Parent then return false end
+        local leader=mission:FindFirstChild("Leader")
+        return leader and leader.Value==player.Name and GetMyMission(.06)==mission
+    end
+    local function changeModifier(mission,name,enable)
+        if not modifierMissionCurrent(mission)then return false end
+        local current=modifierSet(mission:GetAttribute("Modifiers"))
+        if not current then return false end
+        if (current[name]==true)==enable then return true end
+        -- This is a toggle. Send exactly once, then observe replicated state.
+        SafeMissionCall("S_Missions","Modify",name)
+        local deadline=os.clock()+3
+        repeat
+            if not modifierMissionCurrent(mission)then return false end
+            current=modifierSet(mission:GetAttribute("Modifiers"))
+            if current and (current[name]==true)==enable then
+                task.wait(.3)
+                return true
             end
-        end
+            task.wait(.05)
+        until os.clock()>=deadline
+        warn("[Mission] Modifier state did not change: "..name.."; no duplicate toggle sent")
         return false
     end
-
     local function ApplyMissionModifiers()
-        if not missionRunning then return end
-
-        local selected = {}
-        pcall(function()
-            if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
-                local value = Options.MissionModifiersDropdown.Value
-                if type(value) == "table" then
-                    for mod, enabled in pairs(value) do
-                        if enabled then
-                            table.insert(selected, mod)
-                        end
-                    end
-                end
+        verifiedModifierMission,verifiedModifierSet=nil,nil
+        local mission=GetMyMission(.3)
+        if not modifierMissionCurrent(mission)then return false end
+        local selected={}
+        local value=Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value
+        if type(value)~="table"then value=CONFIG.Lobby.Mission.Modifiers end
+        for k,v in pairs(type(value)=="table"and value or {})do
+            local name=type(k)=="number"and v or (v==true and k or nil)
+            if type(name)=="string"then selected[name]=true end
+        end
+        local ok,rules=pcall(function()return require(ReplicatedStorage.Modules.Storage.Modifiers)end)
+        if not ok or type(rules)~="table"then warn("[Mission] Modifier rules unavailable");return false end
+        local allowed={}
+        for _,entry in ipairs(rules.Gamemodes and rules.Gamemodes.Other or {})do allowed[entry.Tag]=true end
+        local expected=table.clone(selected)
+        local difficulty=mission.Value
+        local objective=mission:GetAttribute("Objective")
+        local disabled={}
+        for _,name in ipairs((rules.Blacklisted or {})[objective]or {})do disabled[name]=true end
+        if difficulty=="Freedom"then
+            for _,name in ipairs(rules.Freedom and rules.Freedom.Enabled or {})do expected[name]=true end
+            for _,name in ipairs(rules.Freedom and rules.Freedom.Disabled or {})do disabled[name]=true end
+        end
+        for name in pairs(expected)do
+            if not allowed[name]or disabled[name]then
+                warn("[Mission] Modifier unavailable for this mission: "..name);return false
             end
+            for _,opposite in ipairs((rules.Contrasting or {})[name]or {})do
+                if expected[opposite]then warn("[Mission] Conflicting modifiers: "..name.." / "..opposite);return false end
+            end
+        end
+        local actual=modifierSet(mission:GetAttribute("Modifiers"))
+        if not actual then warn("[Mission] Modifiers attribute unavailable");return false end
+        local changes={}
+        for name in pairs(actual)do if not expected[name]then changes[#changes+1]={name,false}end end
+        local order={}
+        for name in pairs(expected)do order[#order+1]=name end
+        table.sort(order)
+        for _,name in ipairs(order)do if not actual[name]then changes[#changes+1]={name,true}end end
+        getgenv().AstaModifiersApplying=true
+        local applied,errorMessage=pcall(function()
+            for _,entry in ipairs(changes)do
+                if not changeModifier(mission,entry[1],entry[2])then return false end
+            end
+            task.wait(.15)
+            return modifierMissionCurrent(mission)and sameModifiers(modifierSet(mission:GetAttribute("Modifiers")),expected)
         end)
-
-        if #selected == 0 then
-            Library:Notify("No modifiers selected", 2)
-            return
+        getgenv().AstaModifiersApplying=false
+        if not applied or errorMessage~=true then
+            warn("[Mission] Modifiers not verified; mission start postponed"..(not applied and (": "..tostring(errorMessage))or ""))
+            return false
         end
-
-        -- ترتيب ثابت
-        local ordered = {}
-        for _, mod in ipairs(ModifiersList) do
-            for _, sel in ipairs(selected) do
-                if sel == mod then
-                    table.insert(ordered, mod)
-                    break
-                end
-            end
-        end
-        for _, sel in ipairs(selected) do
-            local found = false
-            for _, o in ipairs(ordered) do
-                if o == sel then found = true break end
-            end
-            if not found then
-                table.insert(ordered, sel)
-            end
-        end
-
-        ClearMissionModifiers()
-        if not missionRunning then return end
-
-        local applied = 0
-        local failed = {}
-
-        for _, mod in ipairs(ordered) do
-            if not missionRunning then break end
-
-            local success = ApplyModifier(mod)
-            if success then
-                applied += 1
-                print("[Mission] ✓ Modifier applied:", mod)
-            else
-                table.insert(failed, mod)
-                warn("[Mission] ✗ Failed modifier:", mod)
-            end
-            task.wait(0.16)
-        end
-
-        -- Retry قوي للفاشلين
-        if #failed > 0 and missionRunning then
-            task.wait(0.5)
-            Library:Notify("Retrying failed modifiers...", 2)
-
-            local stillFailed = {}
-            for _, mod in ipairs(failed) do
-                if not missionRunning then break end
-
-                local success = false
-                for _ = 1, 3 do
-                    success = ApplyModifier(mod)
-                    if success then break end
-                    task.wait(0.22)
-                end
-
-                if success then
-                    applied += 1
-                    print("[Mission] ✓ Retry success:", mod)
-                else
-                    table.insert(stillFailed, mod)
-                end
-                task.wait(0.18)
-            end
-            failed = stillFailed
-        end
-
-        task.wait(0.4)
-
-        if #failed == 0 then
-            Library:Notify(string.format("Applied %d/%d modifiers", applied, #selected), 3)
-        else
-            Library:Notify(string.format("Applied %d/%d (failed: %s)", applied, #selected, table.concat(failed, ", ")), 4)
-        end
+        verifiedModifierMission,verifiedModifierSet=mission,expected
+        for _,name in ipairs(order)do print("[Mission] Modifier verified: "..name)end
+        Library:Notify("All selected modifiers verified",2)
+        return true
     end
 
     local function StartMission()
@@ -6888,6 +7995,11 @@ if Tabs.Lobby then
         for attempt = 1, 4 do
             if not missionRunning then return false end
 
+            if not modifierMissionCurrent(verifiedModifierMission)
+                or not sameModifiers(modifierSet(verifiedModifierMission:GetAttribute("Modifiers")),verifiedModifierSet or {})then
+                warn("[Mission] Modifiers changed before Start; postponed")
+                return false
+            end
             local success = SafeMissionCall("S_Missions", "Start")
             task.wait(0.3)
 
@@ -6953,6 +8065,7 @@ if Tabs.Lobby then
     end
 
     local function RunMissionCycle(mySession)
+        if getgenv().AstaTSOwns then return end
         if not missionRunning or missionSessionId ~= mySession then return end
 
         if _G.LobbyUILoaded ~= true then
@@ -6968,6 +8081,7 @@ if Tabs.Lobby then
         if not missionRunning or missionSessionId ~= mySession then return end
 
         if not WaitForPrestigeBeforeMission(mySession) then return end
+        if getgenv().AstaTSOwns then return end
         if not missionRunning or missionSessionId ~= mySession then return end
 
         local selectionVersion = missionSelectionVersion
@@ -7042,9 +8156,19 @@ if Tabs.Lobby then
 
         print(string.format("[Mission] Cycle => Map=%s | Obj=%s | Diff=%s", currentMission, objective, selectedDifficulty))
 
-        if GetMyMission(0.2) then
-            LeaveMission(true)
+        if AstaPrestigeExclusive.held then return end
+        local quietWaitDeadline=os.clock()+5
+        while missionQuietActive()and os.clock()<quietWaitDeadline do
+            if not missionRunning or missionSessionId~=mySession then return end
+            task.wait(.05)
         end
+        if missionQuietActive()then return end
+        AstaMissionQuiet.owner=coroutine.running()
+        AstaMissionQuiet.untilTime=os.clock()+60
+        AstaMissionQuiet.isValid=function()return missionRunning and missionSessionId==mySession end
+        task.wait(.35)
+        local existing=GetMyMission(.2)
+        if existing and existing~=modifierRetryMission then LeaveMission(true)end
 
         local targetDifficulty = selectedDifficulty
         local created = false
@@ -7091,7 +8215,11 @@ if Tabs.Lobby then
         end
 
         Library:Notify("Applying modifiers...", 2)
-        ApplyMissionModifiers()
+        if not ApplyMissionModifiers()then
+            modifierRetryMission=GetMyMission(.1)
+            Library:Notify("Modifiers incomplete or incompatible; mission not started",4)
+            return
+        end
 
         if not missionRunning or missionSessionId ~= mySession or not SelectionStillCurrent() then
             LeaveMission(true)
@@ -7109,6 +8237,7 @@ if Tabs.Lobby then
         local started = StartMission()
 
         if started then
+            modifierRetryMission=nil
             Library:Notify("Mission started!", 3)
         else
             Library:Notify("Start failed after retries", 4)
@@ -7128,6 +8257,9 @@ if Tabs.Lobby then
                 RunMissionCycle(mySession)
             end)
 
+            if AstaMissionQuiet.owner==coroutine.running()then
+                AstaMissionQuiet.owner=nil
+            end
             if not ok then
                 warn("[Mission] Error:", err)
                 Library:Notify("Mission error - retrying", 3)
@@ -7760,8 +8892,8 @@ if IsLobbyLobby() then
 
     UnlockGroupLeft:AddSlider("UnlockDelaySlider", {
         Text = "Unlock Delay (sec)",
-        Default = 0.25,
-        Min = 0.25,
+        Default = 0.08,
+        Min = 0.05,
         Max = 1,
         Rounding = 2,
         Callback = function(v) unlockDelay = v end
@@ -7792,8 +8924,8 @@ if IsLobbyLobby() then
         return data.Slots[key]
     end
     local function readTreeSlot(key)
-        local data = readEquipmentData(true)
-        if Player:GetAttribute("Slot") ~= key then return nil end
+        local data = readEquipmentData(true, key, "tree")
+        if not equipmentSlotStillCurrent(Player, key) then return nil end
         return treeSlot(data, key)
     end
     local function nextTreeNode(slot)
@@ -7815,8 +8947,16 @@ if IsLobbyLobby() then
                                 return nil, "Branch conflicts with an unlocked skill; choose the other side"
                             end
                         end
-                        if def.Previous and not owned[tostring(def.Previous)] then
-                            return nil, "Missing prerequisite " .. tostring(def.Previous) .. " for " .. id
+                        local previous=def.Previous
+                        if previous then
+                            local ready=false
+                            if type(previous)=="table" then
+                                for _,required in pairs(previous)do
+                                    if owned[tostring(required)]then ready=true;break end
+                                end
+                                if next(previous)==nil then ready=true end
+                            else ready=owned[tostring(previous)]==true end
+                            if not ready then return nil,"Missing prerequisite for "..id end
                         end
                         return id, category
                     end
@@ -7828,55 +8968,52 @@ if IsLobbyLobby() then
     local function treeStillEnabled(key)
         return unlockEnabled and getgenv().AstaSkillTreeWorker == unlockGeneration
             and workspace:GetAttribute("Map") == "Lobby"
-            and Player:GetAttribute("Slot") == key
+            and equipmentSlotStillCurrent(Player, key)
+    end
+    local function treeBatch(slot,limit)
+        local virtual=table.clone(slot)
+        virtual.Skills=table.clone(slot.Skills)
+        virtual.Skills.Unlocked=table.clone(slot.Skills.Unlocked)
+        local ids={}
+        for _=1,limit do
+            local id=nextTreeNode(virtual)
+            if not id then break end
+            ids[#ids+1]=id
+            virtual.Skills.Unlocked[#virtual.Skills.Unlocked+1]=id
+        end
+        return ids
     end
     local function runTreePass()
-        local key = Player:GetAttribute("Slot")
-        if not key or not treeStillEnabled(key) then return end
-        local slot = readTreeSlot(key)
-        for step = 1, 100 do
-            if not treeStillEnabled(key) then return end
-            local id, reason = nextTreeNode(slot)
-            if not id then treeLog(reason) return end
-            local confirmed = false
-            for attempt = 1, 3 do
-                if not treeStillEnabled(key) then return end
-                -- Recheck after every uncertain reply before retrying a purchase.
-                if attempt > 1 then
-                    slot = readTreeSlot(key)
-                    local owned = unlockedSet(slot)
-                    if not owned then treeLog("Waiting for confirmation data") return end
-                    if owned[id] then confirmed = true break end
+        if not unlockEnabled or workspace:GetAttribute("Map")~="Lobby"then return end
+        local data,key=readEquipmentData(true,nil,"tree")
+        if not data or not key or not treeStillEnabled(key)then treeLog("Waiting for current-slot data");return end
+        local slot=treeSlot(data,key)
+        for _=1,30 do
+            if not treeStillEnabled(key)then return end
+            local ids=treeBatch(slot,6)
+            if #ids==0 then local _,reason=nextTreeNode(slot);treeLog(reason);return end
+            task.wait(math.clamp(tonumber(unlockDelay)or .08,.05,1))
+            if not treeStillEnabled(key)then return end
+            local response=equipmentInvoke(key,"S_Equipment","Unlock",ids)
+            local updated=treeSlot(response,key)
+            local owned=unlockedSet(updated)
+            if not owned then
+                -- Recover the result before sending another purchase request.
+                for read=1,3 do
+                    if not treeStillEnabled(key)then return end
+                    task.wait(.1*read)
+                    updated=readTreeSlot(key);owned=unlockedSet(updated)
+                    if owned then break end
                 end
-                local currentId = nextTreeNode(slot)
-                if currentId ~= id or not treeStillEnabled(key) then return end
-                task.wait(math.max(0.25, unlockDelay))
-                if not treeStillEnabled(key) then return end
-                local ok, response = pcall(function()
-                    return GET:InvokeServer(AstaAwaitPrestige("S_Equipment", "Unlock", {id}))
-                end)
-                local updated = ok and treeSlot(response, key)
-                local owned = unlockedSet(updated)
-                if not owned or not owned[id] then
-                    task.wait(0.4)
-                    updated = readTreeSlot(key)
-                    owned = unlockedSet(updated)
-                end
-                if not treeStillEnabled(key) then return end
-                if not owned then treeLog("Unlock unconfirmed; waiting for data") return end
-                slot = updated
-                if owned[id] then
-                    confirmed = true
-                    treeLog("Unlocked " .. id .. " | " .. reason)
-                    break
-                end
-                if ok and response == false then break end
-                task.wait(0.5 * attempt)
             end
-            if not confirmed then
-                treeLog("Waiting at skill " .. id .. "; check points, Gold or branch requirements")
-                return
-            end
+            if not owned then treeLog("Batch result unconfirmed; no duplicate unlock sent");return end
+            local count=0
+            for _,id in ids do if owned[id]then count+=1 end end
+            if count==0 then treeLog("Waiting for points, Gold or branch requirements at "..ids[1]);return end
+            treeLog("Confirmed "..count.."/"..#ids.." nodes | Offense priority")
+            slot=updated
+            -- Allow equipment workers one scheduling turn after each bounded batch.
+            equipmentSnapshot.treeBusy=false;task.wait(.05);equipmentSnapshot.treeBusy=true
         end
     end
     UnlockGroupLeft:AddToggle("UnlockSkillsToggle", {
@@ -7887,11 +9024,13 @@ if IsLobbyLobby() then
         while getgenv().AstaSkillTreeWorker == unlockGeneration do
             if unlockEnabled and not isUnlocking then
                 isUnlocking = true
+                equipmentSnapshot.treeBusy=true
                 local ok, err = pcall(runTreePass)
+                equipmentSnapshot.treeBusy=false
                 isUnlocking = false
                 if not ok then treeLog("Error: " .. tostring(err)) end
             end
-            task.wait(unlockEnabled and 5 or 0.5)
+            task.wait(unlockEnabled and 2 or 0.5)
         end
     end)
 
@@ -7900,7 +9039,7 @@ if IsLobbyLobby() then
     local skillsModule = require(game:GetService("ReplicatedStorage").Modules.Storage.Skills)
     getgenv().AutoEquipSkills = false
     getgenv().SkillEquipDelay = 0.2
-    print("[Skills R3] Automatic equipment reader loaded")
+    print("[Skills R5] Serialized equipment requests + batch tree unlock loaded")
     local skillBusy = false
     local lastSkillDataWarning = -math.huge
     local skillRetryAt = {}
@@ -7947,37 +9086,42 @@ if IsLobbyLobby() then
     end
 
     local function readSkills(key, force)
-        local data = readEquipmentData(force)
-        return data and data.Slots and data.Slots[key]
+        local data, resolvedKey = readEquipmentData(force, key, "skills")
+        if not data or not resolvedKey then return nil, resolvedKey end
+        return data.Slots and data.Slots[resolvedKey], resolvedKey
     end
 
     local function equipAllSkills(manual)
         if getgenv().AstaEquipmentWorkerVersion ~= equipmentVersion then return end
-        if skillBusy or workspace:GetAttribute("Map") ~= "Lobby" then return end
+        if skillBusy or equipmentSnapshot.treeBusy or workspace:GetAttribute("Map") ~= "Lobby" then return end
         if not manual and not getgenv().AutoEquipSkills then return end
         skillBusy = true
         local ok, err = pcall(function()
             local player = game:GetService("Players").LocalPlayer
-            local key = player:GetAttribute("Slot")
-            local slot = readSkills(key)
+            local requestedKey = player:GetAttribute("Slot")
+            local slot, key = readSkills(requestedKey, true)
             local plan = slot and chooseSkills(slot)
-            if not plan then
+            if not key or not plan then
                 if os.clock() - lastSkillDataWarning > 15 then
                     lastSkillDataWarning = os.clock()
-                    warn("[Skills R3] No valid account data after retries; Slot=" .. tostring(key))
+                    warn("[Skills R5] Waiting for complete hotbar data; PlayerSlot="
+                        .. tostring(requestedKey) .. " | SnapshotSlot="
+                        .. tostring(equipmentSnapshot.key)
+                        .. " | retry scheduled")
                 end
                 return
             end
+            if #plan==0 then return end
             local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
             task.wait(0.2)
             for _, entry in ipairs(plan) do
-                if workspace:GetAttribute("Map") ~= "Lobby" or player:GetAttribute("Slot") ~= key
+                if equipmentSnapshot.treeBusy or workspace:GetAttribute("Map") ~= "Lobby" or not equipmentSlotStillCurrent(player, key)
                     or (not manual and not getgenv().AutoEquipSkills) then break end
                 local request = tostring(key) .. ":" .. entry.index .. ":" .. entry.id
                 if os.clock() < (skillRetryAt[request] or 0) then continue end
                 -- Refresh before each toggle-like remote; duplicate equip can unequip.
-                local current = os.clock() - equipmentSnapshot.time < 3 and slot or readSkills(key, true)
-                if player:GetAttribute("Slot") ~= key or workspace:GetAttribute("Map") ~= "Lobby" then break end
+                local current = readSkills(key, true)
+                if not equipmentSlotStillCurrent(player, key) or workspace:GetAttribute("Map") ~= "Lobby" then break end
                 if not manual and not getgenv().AutoEquipSkills then break end
                 local freshPlan = current and chooseSkills(current)
                 local stillNeeded = false
@@ -7986,7 +9130,8 @@ if IsLobbyLobby() then
                 end
                 if not stillNeeded then continue end
                 skillRetryAt[request] = os.clock() + 10
-                local response = Event:InvokeServer(AstaAwaitPrestige("S_Equipment", "Skill_State", entry.index, entry.id))
+                local response = equipmentInvoke(key,"S_Equipment","Skill_State",entry.index,entry.id)
+                publishEquipmentData(response,key)
                 local updated = type(response) == "table" and response.Slots and response.Slots[key]
                 if not updated then
                     task.wait(0.5)
@@ -9168,9 +10313,52 @@ if IsLobbyLobby() then
             _AstaOriginalPrint("[Prestige] " .. stage .. " | " .. tostring(message))
         end
     end
+    local function normalizePrestigeSlot(value)
+        if type(value) ~= "string" then return nil end
+        local slot = string.upper(value)
+        if slot == "A" or slot == "B" or slot == "C" then return slot end
+        return nil
+    end
+
+    -- Resolve only from a real player/server selection or an explicit successful/configured
+    -- main-menu selection. Never silently default to slot A.
+    local function prestigeSelectedSlot()
+        local slot = normalizePrestigeSlot(Player:GetAttribute("Slot"))
+        if slot then return slot, "Player.Slot" end
+
+        slot = normalizePrestigeSlot(getgenv().AstaMainMenuLastSelectedSlot)
+        if slot then return slot, "LastSelectedRemote" end
+
+        local autoSelect = type(CONFIG.MainMenu) == "table" and CONFIG.MainMenu.AutoSelect == true
+        pcall(function()
+            if Toggles and Toggles.AutoClickSelectToggle
+                and Toggles.AutoClickSelectToggle.Value == true then
+                autoSelect = true
+            end
+        end)
+
+        if autoSelect then
+            local dropdownValue
+            pcall(function()
+                if Options and Options.SlotSelectionDropdown then
+                    dropdownValue = Options.SlotSelectionDropdown.Value
+                end
+            end)
+            slot = normalizePrestigeSlot(dropdownValue)
+            if slot then return slot, "MainMenuDropdown" end
+
+            slot = normalizePrestigeSlot(CONFIG.MainMenu and CONFIG.MainMenu.Slot)
+            if slot then return slot, "MainMenuConfig" end
+        end
+
+        return nil, "unresolved"
+    end
+
     local function prestigeV2Slot(data, expected)
         if type(data) ~= "table" or type(data.Slots) ~= "table" then return nil end
-        local selected = data.Current_Slot or data.CurrentSlot or expected
+        expected = normalizePrestigeSlot(expected)
+        if not expected then return nil end
+        local selected = normalizePrestigeSlot(data.Current_Slot or data.CurrentSlot) or expected
         local slot = data.Slots[expected]
         if selected ~= expected or type(slot) ~= "table" or type(slot.Progression) ~= "table"
             or type(slot.Progression.Prestige) ~= "number" then return nil end
@@ -9179,6 +10367,7 @@ if IsLobbyLobby() then
     local function prestigeInvoke(route, action, a, b)
         if not prestigeCurrent() then return nil, "Worker replaced" end
         if not ((route == "Functions" and action == "Settings" and (a == "Music" or a == "Effects"))
+            or (route == "Data" and action == "Copy")
             or (route == "S_Equipment" and (action == "Prestige" or action == "Talents"))) then
             return nil, "Blocked remote route"
         end
@@ -9186,7 +10375,7 @@ if IsLobbyLobby() then
         if commit and legacyPending and legacyPending.inFlight then return nil, "Previous-version request still pending" end
         if commit then
             local other = getgenv()["AutoPrestigeNoScroll_" .. tostring(Player.UserId)]
-            local key = tostring(Player:GetAttribute("Slot")) .. ":" .. tostring(Player:GetAttribute("Prestige"))
+            local key = tostring(prestigeSelectedSlot() or "unknown") .. ":" .. tostring(Player:GetAttribute("Prestige"))
             local run = type(other) == "table" and other.JobId == game.JobId and other.Runs and other.Runs[key]
             if run and run.Flight and not run.Flight.Done then return nil, "Standalone request still pending" end
         end
@@ -9199,9 +10388,9 @@ if IsLobbyLobby() then
                 return nil, "No current preparation permit"
             end
             local eligible, reason = prestigeV2Gate(snapshot)
-            if not eligible or pending.Key ~= Player:GetAttribute("Slot")
-                or pending.Prestige ~= Player:GetAttribute("Prestige")
-                or snapshot.slot.Progression.Level ~= Player:GetAttribute("Level")
+            if not eligible or pending.Key ~= prestigeSelectedSlot()
+                or (Player:GetAttribute("Prestige") ~= nil and pending.Prestige ~= Player:GetAttribute("Prestige"))
+                or (Player:GetAttribute("Level") ~= nil and snapshot.slot.Progression.Level ~= Player:GetAttribute("Level"))
                 or workspace:GetAttribute("Map") ~= "Lobby" or prestigeTeleporting
                 or (not pending.Force and not getgenv().PrestigeEnabled) then
                 return nil, "Preparation eligibility changed: " .. tostring(reason)
@@ -9215,6 +10404,9 @@ if IsLobbyLobby() then
         task.spawn(function()
             flight.OK, flight.Values = pcall(function()
                 if route == "Functions" then return table.pack(GET:InvokeServer(route, action, a, b)) end
+                if route == "Data" and action == "Copy" then
+                    return table.pack(GET:InvokeServer("Data", "Copy"))
+                end
                 if action == "Talents" then return table.pack(GET:InvokeServer("S_Equipment", "Talents")) end
                 return table.pack(GET:InvokeServer(route, action, a))
             end)
@@ -9245,8 +10437,19 @@ if IsLobbyLobby() then
             local percentage = xp and xp:FindFirstChild("Percentage")
             xpText = percentage and percentage.Text
         end)
-        return {Slot = Player:GetAttribute("Slot"), Prestige = p, Level = Player:GetAttribute("Level"),
-            XP = Player:GetAttribute("XP"), GoldText = goldText, XPText = xpText,
+        local selectedSlot = prestigeSelectedSlot()
+        local cachedSnapshot = prestigeMissionCache and prestigeMissionCache.Snapshot
+        if cachedSnapshot and cachedSnapshot.key == selectedSlot then
+            if type(p) ~= "number" then p = cachedSnapshot.slot.Progression.Prestige end
+        end
+        local level = Player:GetAttribute("Level")
+        local xp = Player:GetAttribute("XP")
+        if cachedSnapshot and cachedSnapshot.key == selectedSlot then
+            if type(level) ~= "number" then level = cachedSnapshot.slot.Progression.Level end
+            if type(xp) ~= "number" then xp = cachedSnapshot.slot.Progression.XP end
+        end
+        return {Slot = selectedSlot, Prestige = p, Level = level,
+            XP = xp, GoldText = goldText, XPText = xpText,
             ForceGold = getgenv().ForceGoldRequirement,
             RequiredGold = type(p) == "number" and type(requirements) == "table" and requirements[p + 1],
             Enabled = getgenv().PrestigeEnabled, Map = workspace:GetAttribute("Map"), Job = game.JobId}
@@ -9262,28 +10465,114 @@ if IsLobbyLobby() then
         }}
     end
     local function prestigeV2Snapshot()
-        if not prestigeCurrent() or workspace:GetAttribute("Map") ~= "Lobby" then return nil, "Waiting for Lobby" end
-        local expected = Player:GetAttribute("Slot")
-        if expected == nil then return nil, "Current slot is unknown" end
-        for attempt = 1, 2 do
-            local values, err = prestigeInvoke("Functions", "Settings", "Music", 2)
-            if not values then return nil, err end
-            for i = 1, values.n do
+        if not prestigeCurrent() or workspace:GetAttribute("Map") ~= "Lobby" then
+            return nil, "Waiting for Lobby"
+        end
+
+        -- Resolve from the live Player attribute or the explicit main-menu
+        -- selection. The tracker confirms Music/25 returns the account snapshot
+        -- (Slots, Progression, Currency) and is the preferred read path here.
+        local expected, expectedSource = prestigeSelectedSlot()
+        local lastRejectReason
+
+        local function inspectValues(values, source)
+            if type(values) ~= "table" then return nil end
+            for i = 1, (tonumber(values.n) or #values) do
                 local account = values[i]
-                local slot = prestigeV2Slot(account, expected)
-                if slot and type(slot.Progression.Level) == "number" and type(slot.Progression.XP) == "number"
-                    and type(slot.Currency) == "table" and type(slot.Currency.Gold) == "number"
-                    and Player:GetAttribute("Slot") == expected and workspace:GetAttribute("Map") == "Lobby"
-                    and prestigeCurrent() then
-                    slotCache = {slot = slot, data = account, time = tick()}
-                    local snapshot = {slot = slot, key = expected, data = account, goldExact = true, source = "settings_account_data"}
-                    rememberMissionSnapshot(snapshot)
-                    return snapshot
+                if type(account) == "table" and type(account.Slots) == "table" then
+                    local serverSelected = normalizePrestigeSlot(account.Current_Slot or account.CurrentSlot)
+
+                    if serverSelected then
+                        if expected and expected ~= serverSelected then
+                            lastRejectReason = "Selected slot mismatch: expected " .. tostring(expected)
+                                .. ", server reports " .. tostring(serverSelected)
+                        else
+                            expected, expectedSource = serverSelected, source .. ".Current_Slot"
+                        end
+                    end
+
+                    if not expected then
+                        expected, expectedSource = prestigeSelectedSlot()
+                    end
+
+                    -- If the server omits Current_Slot and the client/menu has no
+                    -- selection, infer only when exactly one slot record exists.
+                    if not expected then
+                        local count, onlySlot = 0, nil
+                        for _, candidate in ipairs({"A", "B", "C"}) do
+                            if type(account.Slots[candidate]) == "table" then
+                                count += 1
+                                onlySlot = candidate
+                            end
+                        end
+                        if count == 1 then
+                            expected, expectedSource = onlySlot, source .. ".single_slot_record"
+                        end
+                    end
+
+                    if expected and type(account.Slots[expected]) == "table" then
+                        local liveSlot = normalizePrestigeSlot(Player:GetAttribute("Slot"))
+                        if liveSlot ~= nil and liveSlot ~= expected then
+                            lastRejectReason = "Player.Slot mismatch: expected " .. tostring(expected)
+                                .. ", live Player.Slot=" .. tostring(liveSlot)
+                        elseif workspace:GetAttribute("Map") == "Lobby" and prestigeCurrent() then
+                            local slot = prestigeV2Slot(account, expected)
+                            if slot and type(slot.Progression.Level) == "number"
+                                and type(slot.Progression.XP) == "number"
+                                and type(slot.Currency) == "table"
+                                and type(slot.Currency.Gold) == "number" then
+                                slotCache = {slot = slot, data = account, time = tick()}
+                                local snapshot = {
+                                    slot = slot, key = expected, data = account,
+                                    goldExact = true, source = source .. ":" .. tostring(expectedSource)
+                                }
+                                rememberMissionSnapshot(snapshot)
+                                return snapshot
+                            else
+                                lastRejectReason = source .. " did not contain verified Progression.Level/XP and Currency.Gold"
+                            end
+                        end
+                    end
                 end
             end
+            return nil
+        end
+
+        -- Primary: the exact account-data endpoint used by the working tracker.
+        local musicValues, musicErr = prestigeInvoke("Functions", "Settings", "Music", 25)
+        local snapshot = inspectValues(musicValues, "settings_music_25")
+        if snapshot then return snapshot end
+
+        -- Secondary: Data/Copy can expose Current_Slot on versions where Music/25
+        -- omits it. It is also useful when the selected slot is not yet replicated
+        -- to the LocalPlayer attribute.
+        local copyValues, copyErr = prestigeInvoke("Data", "Copy")
+        snapshot = inspectValues(copyValues, "data_copy")
+        if snapshot then return snapshot end
+
+        -- Compatibility fallback for older game builds.
+        for attempt = 1, 2 do
+            local values, err = prestigeInvoke("Functions", "Settings", "Music", 2)
+            snapshot = inspectValues(values, "settings_music_2")
+            if snapshot then return snapshot end
+            if not values and err then copyErr = copyErr or err end
             if attempt < 2 then task.wait(2) end
         end
-        return nil, "No verified current-slot snapshot in Settings replies"
+
+        if not expected then
+            local configured = type(CONFIG.MainMenu) == "table" and CONFIG.MainMenu.AutoSelect == true
+                and tostring(CONFIG.MainMenu.Slot or "unset") or "AutoSelect disabled"
+            return nil, "No verified slot source: Player.Slot=" .. tostring(Player:GetAttribute("Slot"))
+                .. ", LastSelected=" .. tostring(getgenv().AstaMainMenuLastSelectedSlot)
+                .. ", MainMenuSlot=" .. configured
+                .. (lastRejectReason and (", Detail=" .. lastRejectReason) or "")
+        end
+
+        return nil, "No verified account snapshot for selected slot " .. tostring(expected)
+            .. " (source=" .. tostring(expectedSource) .. ")"
+            .. (lastRejectReason and ("; " .. lastRejectReason) or "")
+            .. (musicErr and ("; Music25=" .. tostring(musicErr)) or "")
+            .. (copyErr and ("; fallback=" .. tostring(copyErr)) or "")
     end
     prestigeV2Gate = function(snapshot)
         local s = snapshot.slot
@@ -9334,7 +10623,7 @@ if IsLobbyLobby() then
         local flight = prestigeSession.flight
         if flight and not flight.Done then return true end
         local other = getgenv()["AutoPrestigeNoScroll_" .. tostring(Player.UserId)]
-        local key = tostring(Player:GetAttribute("Slot")) .. ":" .. tostring(Player:GetAttribute("Prestige"))
+        local key = tostring(prestigeSelectedSlot() or "unknown") .. ":" .. tostring(Player:GetAttribute("Prestige"))
         local run = type(other) == "table" and other.JobId == game.JobId and other.Runs and other.Runs[key]
         return run and run.Flight and not run.Flight.Done or false
     end
@@ -9455,7 +10744,7 @@ if IsLobbyLobby() then
         local pending = prestigeSession.pending or prestigeSession.lastSubmission
         if not pending then return false end
         local attr = Player:GetAttribute("Prestige")
-        if Player:GetAttribute("Slot") == pending.Key and type(attr) == "number" and attr > pending.Prestige then
+        if prestigeSelectedSlot() == pending.Key and type(attr) == "number" and attr > pending.Prestige then
             return success(pending.Prestige, attr)
         end
         if snapshot and snapshot.key == pending.Key and snapshot.slot.Progression.Prestige > pending.Prestige then
@@ -9464,7 +10753,7 @@ if IsLobbyLobby() then
         local flight = pending.Flight
         if flight and flight.Done and flight.OK then
             local returned = prestigeV2Slot(flight.Values[1], pending.Key)
-            if returned and Player:GetAttribute("Slot") == pending.Key and returned.Progression.Prestige > pending.Prestige then
+            if returned and prestigeSelectedSlot() == pending.Key and returned.Progression.Prestige > pending.Prestige then
                 return success(pending.Prestige, returned.Progression.Prestige)
             end
         end
@@ -9549,6 +10838,7 @@ if IsLobbyLobby() then
             if reason == "max" then getgenv().PrestigeEnabled = false end
             return false
         end
+        if missionQuietActive()then return false end
         AstaPrestigeExclusive.held = true
         AstaPrestigeExclusive.untilTime = os.clock() + 25
         prestigeV2Status("Exclusive", "Pausing other hub remote requests for Prestige")
@@ -9607,8 +10897,8 @@ if IsLobbyLobby() then
         candidate, source = selectCandidate(fresh, state)
         if not candidate then state.Exhausted = true prestigeV2Status("Exhausted", source) return false end
         if not prestigeCurrent() or prestigeTeleporting or (not force and not getgenv().PrestigeEnabled)
-            or Player:GetAttribute("Slot") ~= fresh.key
-            or Player:GetAttribute("Prestige") ~= fresh.slot.Progression.Prestige then return false end
+            or prestigeSelectedSlot() ~= fresh.key
+            or (Player:GetAttribute("Prestige") ~= nil and Player:GetAttribute("Prestige") ~= fresh.slot.Progression.Prestige) then return false end
         local boostName
         local ok, memory = pcall(function() return require(game:GetService("ReplicatedStorage").Modules.Storage.Memories) end)
         if ok and type(memory.Boosts) == "table" then
@@ -9647,6 +10937,8 @@ if IsLobbyLobby() then
         return false
     end
     local function doPrestige(force)
+        if missionQuietActive()then return false end
+        if getgenv().AstaTSOwns then return false end
         if prestigeV2Busy or not prestigeCurrent() or prestigeTeleporting then return false end
         if not force and tick() < prestigeNextReadAt then return false end
         prestigeV2Busy, prestigeSession.busy = true, true
@@ -9712,8 +11004,8 @@ if IsLobbyLobby() then
         local configPath = "Asta_AOTR_Prestige_ResumeConfig_" .. tostring(Player.UserId) .. ".luau"
         writefile(configPath, "return " .. encodePrestigeResume(resume))
         if not prestigeCurrent() or not getgenv().PrestigeEnabled
-            or Player:GetAttribute("Slot") ~= snapshot.key
-            or Player:GetAttribute("Prestige") ~= snapshot.slot.Progression.Prestige then return end
+            or prestigeSelectedSlot() ~= snapshot.key
+            or (Player:GetAttribute("Prestige") ~= nil and Player:GetAttribute("Prestige") ~= snapshot.slot.Progression.Prestige) then return end
         if not prestigeSession.resumeQueued then
             queue("local c,e=loadstring(readfile(" .. string.format("%q", configPath)
                 .. "));assert(c,e);getgenv().AstaPrestigeResumeConfig=c();local f,x=loadstring(readfile("
@@ -10521,6 +11813,148 @@ if IsLobbyLobby() then
                 end
             end)
         end
+
+        -- Battle-pass tier claims plus the optional pictured Ascension purchase.
+        local battleEnabled=false
+        local battleNext=0
+        local battleLastMessage
+        local passDefinition=require(game.ReplicatedStorage.Modules.Storage.Pass)
+        local recurring=10
+        local okUI,battleUI=pcall(function()return require(game.ReplicatedStorage.Modules['User Interface'].Battlepass)end)
+        if okUI and type(battleUI.Recurring)=="number"and battleUI.Recurring>0 then recurring=battleUI.Recurring end
+        local function battleLog(message)
+            getgenv().AstaBattlepassClaimStatus=message
+            if message~=battleLastMessage then print("[Battlepass] "..message);battleLastMessage=message end
+        end
+        local function battlePlan(slot)
+            local bp=slot and slot.Battlepass
+            if type(bp)~="table"or type(bp.Claimed)~="table"or type(bp.Tier)~="number"then return nil end
+            local plan={}
+            for tier=0,math.clamp(math.floor(bp.Tier),0,1000)do
+                if (passDefinition.Items and passDefinition.Items[tier])
+                    or (tier>100 and (tier-100)%recurring==0)then
+                    for _,kind in ipairs({"Free","Paid"})do
+                        if (kind=="Free"or bp.Premium==true)and bp.Claimed[tostring(tier).."_"..kind]==nil then
+                            plan[#plan+1]={Tier=tier,Type=kind}
+                        end
+                    end
+                end
+            end
+            return plan
+        end
+        local function battleActive()
+            return battleEnabled and getgenv().AstaEquipmentWorkerVersion==equipmentVersion
+                and workspace:GetAttribute("Map")=="Lobby" and not missionQuietActive()
+                and not AstaPrestigeExclusive.held and not equipmentSnapshot.treeBusy
+        end
+        local premiumAttempts=getgenv().AstaBattlepassPremiumAttempts or {}
+        getgenv().AstaBattlepassPremiumAttempts=premiumAttempts
+        local function premiumPrice()
+            local ui=game.Players.LocalPlayer.PlayerGui:FindFirstChild("Interface")
+            local prompt=ui and ui:FindFirstChild("Battlepass_Prompt")
+            local main=prompt and prompt:FindFirstChild("Prompt")and prompt.Prompt:FindFirstChild("Main")
+            local normal=main and main:FindFirstChild("Normal")
+            local button=normal and normal:FindFirstChild("Buy_N")
+            local price=button and button:FindFirstChild("Price")
+            local text=price and tostring(price.Text)
+            if not text or not text:match("^[%d,%s]+$")then return nil end
+            return tonumber((text:gsub("[, %s]","")))
+        end
+        local function premiumKey(slot,key)
+            local season=slot.Battlepass.Current
+            if type(season)~="number"or season<0 or season~=math.floor(season)then return nil end
+            local identity=tostring(game.Players.LocalPlayer.UserId).."_"..key.."_"..season
+            return identity,"Asta_BP_Premium_"..identity..".json"
+        end
+        local function ensurePremium(slot,key)
+            if slot.Battlepass.Premium==true or CONFIG.Lobby.Claims.AutoBuyPremium~=true then return slot end
+            local price=premiumPrice()
+            local cap=tonumber(CONFIG.Lobby.Claims.PremiumMaxGems)or 24999
+            local gems=slot.Currency and tonumber(slot.Currency.Gems)
+            if not price or price<1 or price>cap then battleLog("Premium price unavailable or above configured Gems limit");return slot end
+            if not gems or gems<price then battleLog("Premium waiting for "..price.." Gems");return slot end
+            local identity,path=premiumKey(slot,key)
+            if not identity then battleLog("Premium season identity unavailable");return slot end
+            if premiumAttempts[identity]then battleLog("Previous Premium request unconfirmed; no duplicate purchase");return slot end
+            if type(isfile)~="function"or type(writefile)~="function"then battleLog("Premium purchase disabled: persistent attempt storage unavailable");return slot end
+            local checked,exists=pcall(isfile,path)
+            if not checked then battleLog("Cannot check Premium purchase marker");return slot end
+            if exists then premiumAttempts[identity]=true;battleLog("Previous Premium request recorded; waiting for ownership confirmation");return slot end
+            if not battleActive()or not equipmentSlotStillCurrent(game.Players.LocalPlayer,key)then return slot end
+            local marker=game:GetService("HttpService"):JSONEncode({Slot=key,Season=slot.Battlepass.Current,Price=price,State="pending"})
+            local saved=pcall(writefile,path,marker)
+            if not saved then battleLog("Cannot persist Premium purchase marker; no purchase sent");return slot end
+            premiumAttempts[identity]=true
+            battleLog("Buying Ascension for "..price.." Gems")
+            local response=equipmentInvoke(key,"Functions","Battlepass","Buy_N")
+            local updated=type(response)=="table"and response.Slots and response.Slots[key]
+            for attempt=1,3 do
+                if updated and updated.Battlepass and updated.Battlepass.Premium==true then break end
+                if not battleActive()then return slot end
+                task.wait(.2*attempt)
+                local d=readEquipmentData(true,key,"battlepass")
+                updated=d and d.Slots and d.Slots[key]
+            end
+            if updated and updated.Battlepass and updated.Battlepass.Current==slot.Battlepass.Current
+                and updated.Battlepass.Premium==true and equipmentSlotStillCurrent(game.Players.LocalPlayer,key)then
+                battleLog("Premium ownership confirmed")
+                return updated
+            end
+            battleLog("Premium purchase unconfirmed; no duplicate purchase will be sent")
+            return updated and updated.Battlepass and updated.Battlepass.Current==slot.Battlepass.Current and updated or slot
+        end
+
+        local function claimBattlepass()
+            if not battleActive()then return end
+            if type(passDefinition.End_Time)=="number"and os.time()>=passDefinition.End_Time then battleLog("Season ended; no claim sent");return end
+            local data,key=readEquipmentData(true,nil,"battlepass")
+            local slot=data and data.Slots and data.Slots[key]
+            if key and slot and battlePlan(slot)then
+                slot=ensurePremium(slot,key)
+            end
+            local plan=battlePlan(slot)
+            if not key or not plan then battleLog("Waiting for verified battle-pass data");return end
+            if #plan==0 then battleLog("No claimable tier rewards");return end
+            if not battleActive()or not equipmentSlotStillCurrent(game.Players.LocalPlayer,key)then return end
+            local season=slot.Battlepass.Current
+            local response=equipmentInvoke(key,"Functions","Tier",plan)
+            local updated=type(response)=="table"and response.Slots and response.Slots[key]
+            for read=1,3 do
+                if updated and type(updated.Battlepass)=="table"and type(updated.Battlepass.Claimed)=="table"then break end
+                if not battleActive()then return end
+                task.wait(.2*read)
+                local refreshed=readEquipmentData(true,key,"battlepass")
+                updated=refreshed and refreshed.Slots and refreshed.Slots[key]
+            end
+            if not equipmentSlotStillCurrent(game.Players.LocalPlayer,key)then return end
+            if not updated or type(updated.Battlepass)~="table"or type(updated.Battlepass.Claimed)~="table"
+                or updated.Battlepass.Current~=season then
+                battleLog("Claim sent; confirmation unavailable, retry delayed");return
+            end
+            local count=0
+            for _,entry in plan do
+                if updated.Battlepass.Claimed[tostring(entry.Tier).."_"..entry.Type]~=nil then count+=1 end
+            end
+            battleLog("Confirmed "..count.."/"..#plan.." tier rewards")
+        end
+        AutoClaimGroup:AddToggle("BuyBattlepassPremiumToggle",{
+            Text="Auto Buy Battle Pass (Gems)",Default=false,
+            Callback=function(value)CONFIG.Lobby.Claims.AutoBuyPremium=value;battleNext=0 end,
+        })
+        AutoClaimGroup:AddToggle("ClaimBattlepassToggle",{
+            Text="Auto Claim Battle Pass",Default=false,
+            Callback=function(value)battleEnabled=value;battleNext=0 end,
+        })
+        task.spawn(function()
+            while getgenv().AstaEquipmentWorkerVersion==equipmentVersion do
+                if battleActive()and os.clock()>=battleNext then
+                    battleNext=os.clock()+30
+                    local ok,err=pcall(claimBattlepass)
+                    if not ok then battleLog("Read/claim error: "..tostring(err))end
+                end
+                task.wait(.5)
+            end
+        end)
 
         AutoClaimGroup:AddToggle("ClaimQuestToggle", {
             Text = "Claim Quest",
@@ -11344,7 +12778,7 @@ if Tabs.AutoFarm then
     })
 
     BladeTab:AddSlider("KillHitsSlider", {
-        Text="Kill Hits", Default=9, Min=9, Max=9, Rounding=0,
+        Text="Kill Hits", Default=15, Min=1, Max=15, Rounding=0,
         Callback=function(val)
             if not syncingWeapon then G.KillHits = val end
         end
@@ -11969,6 +13403,18 @@ local function IsInCutscene()
         return (skip and skip.Visible) or (skipWarning and skipWarning.Visible) or false
     end)
     return ok and result or false
+end
+
+do
+    local requested=CONFIG.Mission.AutoSpearQuest
+    if Tabs.AutoFarm then
+        local group=Tabs.AutoFarm:AddRightGroupbox("Auto Thunder Spear")
+        group:AddToggle("AutoSpearQuestToggle",{Text="Auto Thunder Spear (unlock)",Default=false,Callback=function(value)
+            CONFIG.Mission.AutoSpearQuest=value
+            if value then getgenv().AstaStartThunderQuest()else getgenv().AstaStopThunderQuest()end
+        end})
+    end
+    if requested then CONFIG.Mission.AutoSpearQuest=true;getgenv().AstaStartThunderQuest()end
 end
 
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
@@ -12806,220 +14252,66 @@ local function GetTargets(limit)
     return result
 end
 
--- ============================================================
--- EXACT WORKING 9-TITAN WORKER
---
--- Mirrors the standalone test that successfully registered 9 Titans:
--- one Slash followed immediately by up to 9 Hitboxes/Register calls.
--- The whole command repeats every 0.5 seconds.
--- ============================================================
-
+-- Native Blade controller; the existing reload/refill worker remains the sole supply owner.
 task.spawn(function()
-    local INTERVAL = 0.5
-    local MAX_TARGETS = 9
-
-    local function getExactNineTargets()
-        local Titans = workspace:FindFirstChild("Titans")
-        if not Titans then
-            return {}
+    while task.wait(0.1) do
+        local G=getgenv()
+        if not G.AstaTSOwns then
+            local c=G.AstaBladeController
+            local enabled=G.AutoFarmBlade and not G.AutoThunderSpear and not IsRewardsUIVisible()
+                and not G.IsReloading and not G.IsRefilling and not AstaPrestigeExclusive.held
+            if enabled and workspace:FindFirstChild("Titans") then
+                local ok,err=pcall(function()
+                    c=G.AstaGetBladeCombat()
+                    -- Standalone AOTR AutoKill v2 movement now owns Blade movement.
+                    -- Tween = hover/orbit above each Titan; Teleport = native teleport mode;
+                    -- No Movement = keep the character in place while the native attack runs.
+                    local farmMode = G.FarmMode or "Tween"
+                    c.AutoMove = farmMode ~= "No Movement"
+                    c.TeleportBetweenTitans = true
+                    c.HoverAbove = farmMode ~= "Teleport"
+                    c.HoverOrbit = true
+                    c.HoverHeight = math.clamp(tonumber(G.HoverHeight) or 200, 30, 1000)
+                    c.MovementSpeed = math.clamp(tonumber(G.HoverSpeed) or 220, 20, 250)
+                    c.MinimumHitSpeed = c.AutoMove and math.min(180, c.MovementSpeed) or 0
+                    c.TeleportInterval = 0.8
+                    c.TeleportOffset = Vector3.new(0, 200, 0)
+                    c.Interval = math.max(0.05, tonumber(MissionRemoteConfig.BladeBatchInterval) or 0.6)
+                    c.MaxTargets = math.clamp(tonumber(G.KillHits) or 15,1,15)
+                    -- Supply and retry handling remain owned by the main script.
+                    c.AutoRefill = false
+                    c.AutoRetry = false
+                    if not c.Enabled then c:Start()end
+                end)
+                if not ok then warn("[Native Blade] "..tostring(err));task.wait(2)end
+            elseif c and c.Enabled then c:Stop()end
         end
-
-        local targets = {}
-
-        for _, titan in ipairs(Titans:GetChildren()) do
-            if titan:IsA("Model") then
-                local humanoid = titan:FindFirstChildWhichIsA("Humanoid")
-
-                if humanoid and humanoid.Health > 0 then
-                    local hitboxes = titan:FindFirstChild("Hitboxes")
-                    local hit = hitboxes and hitboxes:FindFirstChild("Hit")
-                    local nape = hit and hit:FindFirstChild("Nape")
-
-                    if nape and nape:IsA("BasePart") and nape.Parent then
-                        targets[#targets + 1] = nape
-
-                        if #targets >= MAX_TARGETS then
-                            break
-                        end
-                    end
-                end
-            end
-        end
-
-        return targets
-    end
-
-    local function hitExactNineOnce()
-        local targets = getExactNineTargets()
-
-        if #targets == 0 then
-            return
-        end
-
-        POST:FireServer(AstaAwaitPrestige(
-            "Attacks",
-            "Slash",
-            true
-        ))
-
-        for i = 1, #targets do
-            local nape = targets[i]
-
-            if nape and nape.Parent then
-                POST:FireServer(AstaAwaitPrestige(
-                    "Hitboxes",
-                    "Register",
-                    nape,
-                    99999,
-                    0
-                ))
-            end
-        end
-    end
-
-    while true do
-        if getgenv().AutoFarmBlade and not IsRewardsUIVisible() then
-            hitExactNineOnce()
-        end
-
-        task.wait(INTERVAL)
     end
 end)
 
 local function FarmUpdate()
+    if getgenv().IsReloading or getgenv().IsRefilling then return end
+    -- Blade AutoKill v2 now owns Titan selection and all Blade movement.
+    -- Keep this heartbeat as a lightweight lifecycle guard only; do not let
+    -- the legacy FarmUpdate move the character or compete with the controller.
+    if getgenv().AstaTSOwns then return end
     pcall(function()
         local G = getgenv()
-        
         if not G.AutoFarmBlade then
             if G.Farm then G.Farm = false end
             return
         end
-        
-        if not G.Farm then return end
-        
-        if isDead then return end
-        
-        if NeedReload() then
-            local char = Player.Character
-
-            if char then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-
-                if hrp then
-                    if G.FarmMode == "No Movement" then
-                        HoldNoMovementHover(hrp)
-                    else
-                        HoverInPlace(hrp)
-                    end
-                end
-            end
-
-            return
-        end
-        
-        if IsRewardsUIVisible() then
-            -- Mission finished: pause this heartbeat only.
-            --
-            -- IMPORTANT:
-            -- Do NOT set G.Farm=false and do NOT turn AutoFarmBlade off.
-            -- Auto Retry can keep the Rewards UI around briefly while the
-            -- next mission is loading. The old code permanently disabled
-            -- Auto Farm during that transition, leaving Auto Retry/Reload
-            -- alive but the farm doing nothing.
-            --
-            -- Keeping AutoFarmBlade + G.Farm enabled lets it automatically
-            -- resume the instant Rewards disappears in the next mission.
-            CurrentEntry = nil
-
-            if G.FarmMode == "No Movement" then
-                local rewardChar = Player.Character
-                local rewardHrp =
-                    rewardChar
-                    and rewardChar:FindFirstChild("HumanoidRootPart")
-
-                if rewardHrp then
-                    HoldNoMovementHover(rewardHrp)
-                end
-            end
-
-            return
-        end
+        if not G.Farm or isDead then return end
 
         local char = Player.Character
-        if not char then return end
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hrp or not hum or hum.Health <= 0 then
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not char or not hum or hum.Health <= 0 then
             OnDeath()
             return
         end
 
-        if G.FarmMode == "No Movement" then
-            -- Fly vertically above the position where this character started
-            -- No Movement, then stay locked to that exact X/Z forever.
-            HoldNoMovementHover(hrp)
-
-            -- Keep Titan state refreshed for the rest of the script.
-            -- No Movement itself never follows any Titan.
-            ScanTitans()
-
-            return
-        end
-
-        hrp.AssemblyAngularVelocity = Vector3.zero
-
-        if hrp.Position.Y < -50 then
-            hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            CleanupSmoothMovement()
-            return
-        end
-
-        ScanTitans()
-
-        local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
-        if waveWaiting then
-            if elapsed < (G.SafetyTime or 60) then
-                HoverInPlace(hrp)
-                return
-            else
-                waveWaiting = false
-            end
-        end
-
-        if #ActiveTitans == 0 then
-            CurrentEntry = nil
-            HoverInPlace(hrp)
-            return
-        end
-
-        LastTitanHoverHeight = G.HoverHeight or 120
-
-        if not CurrentEntry or not IsTitanAlive(CurrentEntry.titan) then
-            CurrentEntry = GetBestTarget(hrp.Position)
-        end
-        
-        if not CurrentEntry then return end
-
-        local nape = CurrentEntry.nape
-        if not nape then
-            CurrentEntry = nil
-            return
-        end
-        
-        LastTitanPosition = nape.Position
-
-        local ty = nape.Position.Y + (G.HoverHeight or 120)
-        local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
-        local lookDir = Vector3.new(nape.Position.X, ty, nape.Position.Z - 5)
-
-        NoclipOn()
-
-        if G.FarmMode == "Teleport" then
-            MoveStableTeleport(hrp, tp)
-        else
-            MoveSmooth(hrp, tp, lookDir)
-        end
+        -- Intentionally no ScanTitans / target movement here:
+        -- AstaBladeController.selectTarget + updateMovement handle both.
     end)
 end
 
@@ -13269,6 +14561,7 @@ local function ThunderAttackAllTitans()
 end
 
 local function SpearFarmUpdate()
+    if getgenv().AstaTSOwns then return end
     pcall(function()
         local G = getgenv()
         
@@ -13552,6 +14845,7 @@ if Tabs.AutoFarm then
         end
 
         local function clickRetry(btn)
+            if getgenv().AstaTSOwns then return false end
             local VIM = game:GetService("VirtualInputManager")
             local GS = game:GetService("GuiService")
             local clicked = false
@@ -13975,7 +15269,7 @@ task.spawn(function()
                 4
             )
 
-            if autoReturnEnabled
+            if not getgenv().AstaTSOwns and autoReturnEnabled
                 and completedMissions >= targetMissions
                 and not isReturning then
 
@@ -14049,383 +15343,179 @@ task.spawn(function()
 end)
 
 
-getgenv().AutoReloadBlade = getgenv().AutoReloadBlade or false
-
-task.spawn(function()
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local VIM = game:GetService("VirtualInputManager")
-
-    local Remotes = ReplicatedStorage
-        :WaitForChild("Assets")
-        :WaitForChild("Remotes")
-
-    local GET = Remotes:WaitForChild("GET")
-    local POST = Remotes:WaitForChild("POST")
-
-    -- ============================================================
-    -- FAST AUTO RELOAD
-    --
-    -- Old version had:
-    --   refill cooldown       = 1.5s
-    --   R cooldown            = 1.0s
-    --   fixed refill wait     = 1.5s
-    --   reload start wait     = 0.3s
-    --   outer action wait     = 0.5s
-    --   outer scan delay      = 0.1s
-    --
-    -- This version reacts/polls instead of sleeping for fixed times.
-    -- ============================================================
-
-    local COOLDOWN_REFILL = 0.45
-    local COOLDOWN_R_PRESS = 0.30
-
-    local REFILL_RETRY_DELAY = math.max(0.10, tonumber(MissionRemoteConfig.RefillRetryDelay) or 0.20)
-    local REFILL_TIMEOUT = 1.40
-    local REFILL_MAX_ATTEMPTS = math.max(1, math.floor(tonumber(MissionRemoteConfig.RefillMaxAttempts) or 5))
-
-    local RELOAD_RETRY_DELAY = math.max(0.10, tonumber(MissionRemoteConfig.ReloadRetryDelay) or 0.18)
-    local RELOAD_TIMEOUT = 1.50
-    local RELOAD_MAX_ATTEMPTS = math.max(1, math.floor(tonumber(MissionRemoteConfig.ReloadMaxAttempts) or 6))
-
-    local LOOP_DELAY = 0.08
-    local CACHE_REFRESH_INTERVAL = 8
-
-    local lastRefillTime = 0
-    local lastRPressTime = 0
-
-    local refillBusy = false
-    local reloadBusy = false
-
-    local validRefills = {}
-    local refillIndex = 1
-
-    -- ------------------------------------------------------------
-    -- Refill cache
-    -- ------------------------------------------------------------
-
-    local function refreshRefillCache()
-        local newCache = {}
-        local seen = {}
-
-        local function scanRoot(root)
-            if not root then return end
-
-            for _, obj in ipairs(root:GetDescendants()) do
-                if obj.Name == "Refill"
-                    and obj:IsA("BasePart")
-                    and not seen[obj] then
-
-                    seen[obj] = true
-                    newCache[#newCache + 1] = obj
-                end
-            end
-        end
-
-        pcall(function()
-            -- Normal maps keep refill parts under these two roots.
-            -- Avoid scanning the entire workspace every few seconds.
-            scanRoot(workspace:FindFirstChild("Unclimbable"))
-            scanRoot(workspace:FindFirstChild("Climbable"))
-
-            -- Rare-map fallback only when the normal roots yielded nothing.
-            if #newCache == 0 then
-                scanRoot(workspace)
-            end
-        end)
-
-        if #newCache > 0 then
-            validRefills = newCache
+do
+    local env=getgenv()
+    local token={}
+    env.AstaSupplyWorkerToken=token
+    local nativeSource=[======[
+-- Actor-local supply worker. No attack or mission actions are owned here.
+local player=game:GetService("Players").LocalPlayer
+local character=player.Character
+local actor=character and character:FindFirstChild("Actor")
+if not actor then return end
+local job=actor:GetAttribute("AstaSupplyJob")
+local function current()
+    return actor:GetAttribute("AstaSupplyJob")==job and player.Character==character
+end
+local function enabled()
+    local h=character:FindFirstChildWhichIsA("Humanoid")
+    return current()and actor:GetAttribute("AstaSupplyEnabled")==true and h and h.Health>0
+end
+local function status(message,mode)
+    if current()then actor:SetAttribute("AstaSupplyStatus",message);actor:SetAttribute("AstaSupplyMode",mode or "Idle")end
+end
+local host
+local function resolve()
+    if host and host.Cache and host.Cache.Character==character then return host end
+    for _,v in filtergc("table",{Keys={"Modules","Cache","Loadout"}},false)do
+        if v.Cache.Character==character and v.Modules.ODMG and v.Loadout then host=v;return host end
+    end
+end
+local function spareCount(rig)
+    local n=0
+    if rig then for i=1,3 do
+        local a=rig:FindFirstChild("Left_"..i,true)
+        local b=rig:FindFirstChild("Right_"..i,true)
+        if a and b and a:GetAttribute("Used")==nil then n+=1 end
+    end end
+    return n
+end
+local function stock(h,station)
+    local count=tonumber(station.Parent:GetAttribute("Refills"))
+    if count~=nil then return count end
+    count=tonumber(player:GetAttribute("Refills"))
+    local ref=h.Modules.Zones.Reference
+    if ref and ref:IsA("ValueBase")then count=(count or 0)+(tonumber(ref.Value)or 0)end
+    return count
+end
+local function stationFor(h,root)
+    local best,distance
+    for _,p in workspace:QueryDescendants("#Refill")do
+        if p:IsA("BasePart")and (stock(h,p)or 0)>0 then
+            local d=(p.Position-root.Position).Magnitude
+            if not distance or d<distance then best,distance=p,d end
         end
     end
-
-    refreshRefillCache()
-
-    task.spawn(function()
-        while true do
-            task.wait(CACHE_REFRESH_INTERVAL)
-
-            if getgenv().AutoReloadBlade then
-                refreshRefillCache()
-            end
+    return best
+end
+local nextAttempt=0
+local function step()
+    local h=resolve()
+    if not h then status("Waiting for native supply data");return end
+    if h.Loadout.Weapon~="Blades"then status("Blade supply worker: waiting for Blades");return end
+    local od=h.Modules.ODMG
+    local vars=h.Cache.Variables
+    local root=character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    if vars.Reload or vars.Full_Reload then status("Waiting for native supply animation",vars.Full_Reload and "Refill"or "Reload");return end
+    local ready,rig=od.Blade_Check(h,character)
+    if ready==true then status("Blades ready");return end
+    if os.clock()<nextAttempt then return end
+    if od.Get_Reload(rig)then
+        status("Reloading a spare blade set","Reload")
+        task.wait(.15)
+        if not enabled()then return end
+        od.Reload(h,false)
+        local deadline=os.clock()+8
+        repeat
+            task.wait(.1)
+            if not enabled()then return end
+            local usable=od.Blade_Check(h,character)
+            if usable==true and not vars.Reload then status("Blade reload confirmed");nextAttempt=os.clock()+.4;return end
+        until os.clock()>deadline
+        status("Blade reload unconfirmed; retry delayed")
+        nextAttempt=os.clock()+3
+        return
+    end
+    local station=stationFor(h,root)
+    if not station then status("No stocked refill station available");nextAttempt=os.clock()+5;return end
+    local before=spareCount(rig)
+    local previous=h.Modules.Zones.Refill_Station
+    local returnPosition=root.CFrame
+    status("Refilling at nearest stocked station","Refill")
+    local function restore()
+        if not current()then return end
+        if h.Modules.Zones.Refill_Station==station then h.Modules.Zones.Refill_Station=previous end
+        if current()and root.Parent and character.Humanoid.Health>0 then
+            root.CFrame=returnPosition;root.AssemblyLinearVelocity=Vector3.zero
         end
+    end
+    local ok,err=pcall(function()
+        task.wait(.2)
+        if not enabled()then return end
+        root.CFrame=station.CFrame+Vector3.new(0,3,0)
+        root.AssemblyLinearVelocity=Vector3.zero;root.AssemblyAngularVelocity=Vector3.zero
+        task.wait(.7)
+        if not enabled()or not station.Parent then return end
+        h.Modules.Zones.Refill_Station=station
+        od.Reload(h) -- Native full-refill action; normal reload passes false above.
+        local deadline=os.clock()+16
+        repeat
+            task.wait(.15)
+            if not enabled()then return end
+            local freshRig=od.Rig(h,character)
+            if not vars.Full_Reload and spareCount(freshRig)>before then
+                actor:SetAttribute("AstaSupplyLastSuccess",os.clock())
+                status("Full refill confirmed","Refill")
+                return
+            end
+        until os.clock()>deadline
+        status("Full refill unconfirmed; check native action/station","Refill")
     end)
-
-    -- ------------------------------------------------------------
-    -- Blade state
-    -- ------------------------------------------------------------
-
-    local function NeedReload()
-        local characters = workspace:FindFirstChild("Characters")
-        if not characters then return false end
-
-        local playerChar = characters:FindFirstChild(LocalPlayer.Name)
-        if not playerChar then return false end
-
-        local rig = playerChar:FindFirstChild("Rig_" .. LocalPlayer.Name)
-        if not rig then return false end
-
-        local leftHand = rig:FindFirstChild("LeftHand")
-        local rightHand = rig:FindFirstChild("RightHand")
-
-        if leftHand then
-            local blade = leftHand:FindFirstChild("Blade_1")
-            if blade and blade.Transparency == 1 then
-                return true
-            end
-        end
-
-        if rightHand then
-            local blade = rightHand:FindFirstChild("Blade_1")
-            if blade and blade.Transparency == 1 then
-                return true
-            end
-        end
-
-        return false
+    restore()
+    if not ok then status("Refill error: "..tostring(err))else
+        local last=actor:GetAttribute("AstaSupplyLastSuccess")
+        status(last and os.clock()-last<2 and "Full refill confirmed"or "Refill not confirmed; retry delayed")
     end
+    nextAttempt=os.clock()+3
+end
+local ok,err=pcall(function()
+    while enabled()do step();task.wait(.2)end
+end)
+if current()then status(not ok and ("Supply worker error: "..tostring(err))or "Supply worker stopped");actor:SetAttribute("AstaSupplyRunning",false)end
 
-    local function getBladeSetCount()
-        local count = nil
-
-        -- Fast known path first.
-        pcall(function()
-            local sets =
-                LocalPlayer.PlayerGui
-                .Interface.HUD.Main.Top["7"]
-                .Blades.Sets
-
-            if sets and sets:IsA("TextLabel") and sets.Text then
-                count = tonumber(
-                    tostring(sets.Text)
-                        :gsub("%s+", "")
-                        :match("^(%d+)/")
-                )
+]======]
+    task.spawn(function()
+        local currentActor,currentJob
+        local lastMessage
+        while env.AstaSupplyWorkerToken==token do
+            local player=game.Players.LocalPlayer
+            local c=player and player.Character
+            local h=c and c:FindFirstChildWhichIsA("Humanoid")
+            local actor=c and c:FindFirstChild("Actor")
+            local enabled=env.AutoReloadBlade==true and h and h.Health>0 and actor~=nil
+            if currentActor and (currentActor~=actor or not enabled)then
+                if currentActor:GetAttribute("AstaSupplyJob")==currentJob then currentActor:SetAttribute("AstaSupplyEnabled",false)end
+                currentActor=nil
+                env.IsReloading=false;env.IsRefilling=false
             end
-        end)
-
-        if count ~= nil then
-            return count
-        end
-
-        -- Fallback scan for maps/UI variants.
-        pcall(function()
-            local top =
-                LocalPlayer.PlayerGui
-                .Interface.HUD.Main.Top
-
-            if not top then return end
-
-            for _, child in ipairs(top:GetChildren()) do
-                local blades = child:FindFirstChild("Blades")
-                local sets = blades and blades:FindFirstChild("Sets")
-
-                if sets
-                    and sets:IsA("TextLabel")
-                    and sets.Text then
-
-                    local n = sets.Text:match("(%d+)%s*/")
-
-                    if n then
-                        count = tonumber(n)
-                        return
+            if enabled then
+                if currentActor~=actor or actor:GetAttribute("AstaSupplyRunning")~=true then
+                    currentActor=actor
+                    currentJob=(actor:GetAttribute("AstaSupplyJob")or 0)+1
+                    actor:SetAttribute("AstaSupplyJob",currentJob)
+                    actor:SetAttribute("AstaSupplyEnabled",true)
+                    actor:SetAttribute("AstaSupplyRunning",true)
+                    local ok,err=pcall(function()
+                        assert(type(run_on_actor)=="function" and type(filtergc)=="function","Supply worker requires run_on_actor/filtergc")
+                        run_on_actor(actor,nativeSource)
+                    end)
+                    if not ok then
+                        actor:SetAttribute("AstaSupplyRunning",false)
+                        warn("[AutoRefill] "..tostring(err));task.wait(3)
                     end
                 end
+                local mode=actor:GetAttribute("AstaSupplyMode")
+                env.IsReloading=mode=="Reload";env.IsRefilling=mode=="Refill"
+                local message=actor:GetAttribute("AstaSupplyStatus")
+                if message and message~=lastMessage then print("[AutoRefill] "..message);lastMessage=message end
             end
-        end)
-
-        return count
-    end
-
-    local function isZeroThree()
-        local count = getBladeSetCount()
-        return count ~= nil and count <= 0
-    end
-
-    -- ------------------------------------------------------------
-    -- Fast refill
-    -- ------------------------------------------------------------
-
-    local function PerformRefill()
-        if refillBusy or reloadBusy then
-            return false
+            task.wait(.1)
         end
+        if currentActor and currentActor:GetAttribute("AstaSupplyJob")==currentJob then currentActor:SetAttribute("AstaSupplyEnabled",false)end
+    end)
+end
 
-        local now = tick()
-
-        if now - lastRefillTime < COOLDOWN_REFILL then
-            return false
-        end
-
-        -- Remove dead cached parts.
-        local alive = {}
-
-        for _, refill in ipairs(validRefills) do
-            if refill and refill.Parent then
-                table.insert(alive, refill)
-            end
-        end
-
-        validRefills = alive
-
-        if #validRefills == 0 then
-            refreshRefillCache()
-
-            if #validRefills == 0 then
-                return false
-            end
-        end
-
-        lastRefillTime = now
-        refillBusy = true
-        getgenv().IsRefilling = true
-
-        local target =
-            validRefills[((refillIndex - 1) % #validRefills) + 1]
-
-        refillIndex = refillIndex + 1
-
-        local started = tick()
-        local success = false
-        local attempts = 0
-
-        -- Send immediately, then poll the set counter. Hard-cap retries so
-        -- a delayed UI/server response cannot flood the remote.
-        repeat
-            attempts = attempts + 1
-
-            pcall(function()
-                POST:FireServer(AstaAwaitPrestige(
-                    "Attacks",
-                    "Reload",
-                    target
-                ))
-            end)
-
-            task.wait(REFILL_RETRY_DELAY)
-
-            if not isZeroThree() then
-                success = true
-                break
-            end
-
-        until not getgenv().AutoReloadBlade
-            or attempts >= REFILL_MAX_ATTEMPTS
-            or (tick() - started) >= REFILL_TIMEOUT
-
-        getgenv().IsRefilling = false
-        refillBusy = false
-
-        return success
-    end
-
-    -- ------------------------------------------------------------
-    -- Fast blade reload
-    -- ------------------------------------------------------------
-
-    local function PressR()
-        if reloadBusy or refillBusy then
-            return false
-        end
-
-        local now = tick()
-
-        if now - lastRPressTime < COOLDOWN_R_PRESS then
-            return false
-        end
-
-        lastRPressTime = now
-        reloadBusy = true
-        getgenv().IsReloading = true
-
-        -- Keep the original R press because the game/client may expect it.
-        pcall(function()
-            VIM:SendKeyEvent(
-                true,
-                Enum.KeyCode.R,
-                false,
-                game
-            )
-
-            task.wait(0.015)
-
-            VIM:SendKeyEvent(
-                false,
-                Enum.KeyCode.R,
-                false,
-                game
-            )
-        end)
-
-        local started = tick()
-        local success = false
-        local attempts = 0
-
-        -- Send the known reload remote with bounded retries. This is much
-        -- lighter than the old ~0.035s spam loop and gives the server time
-        -- to apply each reload before another request is sent.
-        repeat
-            if not NeedReload() then
-                success = true
-                break
-            end
-
-            attempts = attempts + 1
-
-            pcall(function()
-                GET:InvokeServer(AstaAwaitPrestige(
-                    "Blades",
-                    "Reload"
-                ))
-            end)
-
-            task.wait(RELOAD_RETRY_DELAY)
-
-        until not getgenv().AutoReloadBlade
-            or attempts >= RELOAD_MAX_ATTEMPTS
-            or (tick() - started) >= RELOAD_TIMEOUT
-
-        if not NeedReload() then
-            success = true
-        end
-
-        getgenv().IsReloading = false
-        reloadBusy = false
-
-        return success
-    end
-
-    -- ------------------------------------------------------------
-    -- Main fast loop
-    -- ------------------------------------------------------------
-
-    while true do
-        if getgenv().AutoReloadBlade
-            and not reloadBusy
-            and not refillBusy
-            and NeedReload() then
-
-            if isZeroThree() then
-                PerformRefill()
-
-                -- As soon as the server gives us a new blade set,
-                -- reload the hand blades immediately instead of waiting
-                -- for another 0.5s loop.
-                if getgenv().AutoReloadBlade
-                    and NeedReload()
-                    and not isZeroThree() then
-
-                    PressR()
-                end
-            else
-                PressR()
-            end
-        end
-
-        task.wait(LOOP_DELAY)
-    end
-end)
 if Tabs.Webhook then
     -- Separate function scope prevents Luau's 200-local-register limit.
     (function()
@@ -15541,97 +16631,13 @@ end
 
 
 
-if Tabs.AutoFarm then
-    local SpearGroup = Tabs.AutoFarm:AddRightGroupbox("Auto Spear Quest")
-    
-    local spearQuestEnabled = false
-    local spearQuestRunning = false
-    
-        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-    
-        local function callSpearQuestUpdate()
-        for i = 1, 6 do
-            if not spearQuestEnabled then break end
-            local args = {"Quests", "Update_Spear_Towers", true}
-            pcall(function()
-                GET:InvokeServer(AstaAwaitPrestige(unpack(args)))
-            end)
-            task.wait(0.2)
-        end
-    end
-    
-    SpearGroup:AddToggle("AutoSpearQuestToggle", {
-        Text="Auto Spear Quest",
-        Default=false,
-        Callback=function(v)
-            spearQuestEnabled = v
-            if v and not spearQuestRunning then
-                spearQuestRunning = true
-                task.spawn(function()
-                                        callSpearQuestUpdate()
-                    
-                                        repeat task.wait() until game.Players.LocalPlayer.Character
-                    local hrp = game.Players.LocalPlayer.Character:WaitForChild("HumanoidRootPart")
-                    
-                    local Unclimbable = workspace:FindFirstChild("Unclimbable")
-                    if Unclimbable then
-                        local baseCircle = Unclimbable:FindFirstChild("Supplies_Circle")
-                        local baseHitbox = baseCircle and baseCircle:FindFirstChild("Hitbox")
-                        
-                        for lap = 1, 3 do
-                            if not spearQuestEnabled then break end
-                            
-                            local supplies = {}
-                            for _, obj in ipairs(Unclimbable:GetChildren()) do
-                                if obj.Name:find("ThunderSpear_Supplies") then
-                                    table.insert(supplies, obj)
-                                end
-                            end
-                            
-                            for _, supply in ipairs(supplies) do
-                                if not spearQuestEnabled then break end
-                                
-                                local hitbox = supply:FindFirstChild("Hitbox")
-                                if hitbox and hitbox.Parent then
-                                    hrp.CFrame = hitbox.CFrame
-                                    hrp.Velocity = Vector3.zero
-                                    hrp.RotVelocity = Vector3.zero
-                                    task.wait(0.5)
-                                end
-                                
-                                if baseHitbox and baseHitbox.Parent then
-                                    hrp.CFrame = baseHitbox.CFrame
-                                    hrp.Velocity = Vector3.zero
-                                    hrp.RotVelocity = Vector3.zero
-                                    task.wait(0.5)
-                                end
-                            end
-                        end
-                    end
-                    
-                    spearQuestRunning = false
-                    if spearQuestEnabled then
-                        spearQuestEnabled = false
-                        pcall(function()
-                            SpearGroup:GetToggle("AutoSpearQuestToggle"):SetValue(false)
-                        end)
-                    end
-                end)
-            else
-                spearQuestRunning = false
-            end
-        end
-    })
-end
-
-
 -- ============================================================
 
 -- ============================================================
 -- The old standalone 9-Titan infinite remote loop was removed.
--- Blade attacks are handled by the exact 9-Titan / 0.5s worker above
--- worker above, including No Movement mode.
+-- Blade attacks use the native Actor controller; normal movement and supplies remain in the main hub.
 -- ============================================================
+
 
 ]==========]
 do
