@@ -2249,7 +2249,11 @@ if not ok then report("Stopped: "..tostring(err));warn("[Auto Thunder Spears] ".
         if env.AstaBladeController then return env.AstaBladeController end
         assert(type(run_on_actor)=="function" and type(filtergc)=="function","Native Blade requires run_on_actor/filtergc")
         local controller=assert(loadstring(factorySource))({Paused=function()
+            local c=game.Players.LocalPlayer.Character
+            local actor=c and c:FindFirstChild("Actor")
+            local mode=actor and actor:GetAttribute("AstaSupplyMode")
             return AstaPrestigeExclusive.held or env.IsReloading or env.IsRefilling
+                or mode=="Reload" or mode=="Refill"
         end})
         env.AstaBladeController=controller
         return controller
@@ -14250,6 +14254,77 @@ local function GetTargets(limit)
         result[i] = sorted[i].entry
     end
     return result
+end
+
+-- Hold the current position only during a native blade-set reload.
+-- Full refills own movement and must never inherit this position constraint.
+do
+    local env=getgenv()
+    if env.AstaBladeReloadHold then env.AstaBladeReloadHold:Destroy()end
+    local hold={}
+    env.AstaBladeReloadHold=hold
+    local rootRef,attachment,position,orientation
+    local connection
+    local function clear()
+        if position then position:Destroy();position=nil end
+        if orientation then orientation:Destroy();orientation=nil end
+        if attachment then attachment:Destroy();attachment=nil end
+        rootRef=nil
+    end
+    local function shouldHold(mode,reloading,refilling,farming,quest)
+        if mode=="Refill"or refilling then return false end
+        local reload=mode=="Reload"or (mode==nil and reloading==true)
+        return reload and (farming==true or quest==true)
+    end
+    local function update()
+        local player=game:GetService("Players").LocalPlayer
+        local character=player and player.Character
+        local root=character and character:FindFirstChild("HumanoidRootPart")
+        local humanoid=character and character:FindFirstChildWhichIsA("Humanoid")
+        local actor=character and character:FindFirstChild("Actor")
+        local mode=actor and actor:GetAttribute("AstaSupplyMode")
+        if not root or not humanoid or humanoid.Health<=0 or IsRewardsUIVisible()
+            or not shouldHold(mode,env.IsReloading,env.IsRefilling,env.AutoFarmBlade,env.AstaTSOwns)then
+            clear();return
+        end
+        if rootRef==root and position and position.Parent and orientation and orientation.Parent then return end
+        clear()
+        rootRef=root
+        local anchor=root.CFrame
+        attachment=Instance.new("Attachment")
+        attachment.Name="AstaBladeReloadAttachment"
+        attachment.Parent=root
+        position=Instance.new("AlignPosition")
+        position.Name="AstaBladeReloadPosition"
+        position.Mode=Enum.PositionAlignmentMode.OneAttachment
+        position.Attachment0=attachment
+        position.ApplyAtCenterOfMass=true
+        position.RigidityEnabled=true
+        position.MaxForce=math.max(100000,root.AssemblyMass*workspace.Gravity*50)
+        position.Responsiveness=100
+        position.Position=anchor.Position
+        position.Parent=root
+        orientation=Instance.new("AlignOrientation")
+        orientation.Name="AstaBladeReloadOrientation"
+        orientation.Mode=Enum.OrientationAlignmentMode.OneAttachment
+        orientation.Attachment0=attachment
+        orientation.RigidityEnabled=true
+        orientation.MaxTorque=math.max(1000000,root.AssemblyMass*workspace.Gravity*100)
+        orientation.Responsiveness=100
+        orientation.CFrame=anchor.Rotation
+        orientation.Parent=root
+        root.AssemblyLinearVelocity=Vector3.zero
+        root.AssemblyAngularVelocity=Vector3.zero
+    end
+    function hold:Destroy()
+        if connection then connection:Disconnect();connection=nil end
+        clear()
+        if env.AstaBladeReloadHold==self then env.AstaBladeReloadHold=nil end
+    end
+    connection=game:GetService("RunService").Heartbeat:Connect(function()
+        local ok,err=pcall(update)
+        if not ok then clear();warn("[ReloadHover] "..tostring(err))end
+    end)
 end
 
 -- Native Blade controller; the existing reload/refill worker remains the sole supply owner.
