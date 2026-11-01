@@ -40,7 +40,7 @@ getgenv().TownShipConfig = {
     -- Numbers are usually seconds, amounts, speed, height, etc.
     -- ========================================================
     System = {
-        ConsoleMessages = false,     -- General console switch; PrestigeDiagnostics is independent.
+        ConsoleMessages = true,     -- General console switch; PrestigeDiagnostics is independent.
         PrestigeDiagnostics = false, -- Show Prestige decisions and mission preflight results.
         PrintNotifications = false,  -- true = print old UI notifications (only when ConsoleMessages is true).
         PrintConfigLoads = false,    -- true = print every config value as it loads (only when ConsoleMessages is true).
@@ -119,7 +119,7 @@ getgenv().TownShipConfig = {
                 "Fatigue",           -- Enables the Fatigue modifier.
             },
 
-            Delay = 10,                -- Start mission creation immediately after eligibility preflight.
+            Delay = 15,                -- Lobby preparation window in seconds; rolls continue during this countdown.
             WavesDelay = 0,          -- Extra delay in seconds for wave actions.
         },
 
@@ -193,7 +193,7 @@ getgenv().TownShipConfig = {
         },
 
         Prestige = {
-            Enabled = false,          -- Enables automatic prestige.
+            Enabled = true,          -- Enables automatic prestige.
             RejoinOnFailure = true,  -- Rejoin only while all Prestige requirements are verified.
             RejoinAfter = 60,        -- Seconds of stalled eligible Prestige before Lobby recovery.
             PrepareTalentsOnce = true, -- Recorded Music2 -> Talents(no Item) -> offered-name Prestige flow.
@@ -203,8 +203,8 @@ getgenv().TownShipConfig = {
                 [0] = 0,           -- Gold requirement used for Prestige 0 -> 1.
                 [1] = 0,           -- Gold requirement used for Prestige 1 -> 2.
                 [2] = 0,           -- Gold requirement used for Prestige 2 -> 3.
-                [3] = 0,           -- Gold requirement used for Prestige 3 -> 4.
-                [4] = 0,          -- Gold requirement used for Prestige 4 -> 5.
+                [3] = 400,           -- Gold requirement used for Prestige 3 -> 4.
+                [4] = 1000,          -- Gold requirement used for Prestige 4 -> 5.
             },
 
             Boost = "Gold Boost",    -- Boost name/value passed to the prestige system.
@@ -214,6 +214,9 @@ getgenv().TownShipConfig = {
 
         Claims = {
             Quests = true,            -- Claims only currently claimable non-Battlepass quests using the live quest reader.
+            ArtifactRollInterval = 0, -- Send the next request as soon as the previous action is confirmed.
+            ArtifactDamageRoll = true, -- Gold rolls only equipped Crown and Handkerchief to positive ODM Damage x2.
+            AchievementArtifacts = true, -- Claim category rewards, then equip Crown/Handkerchief first.
             Achievements = true,     -- Claims only currently claimable achievements using the live Titles reader.
             Battlepass = true,       -- Claim available Free/Paid tier rewards.
             AutoBuyPremium = true,   -- Buy the pictured Ascension pass with Gems when affordable.
@@ -318,7 +321,7 @@ getgenv().TownShipConfig = {
 
         Performance = {
             UIScale = 100,           -- Old UI scale percentage. Kept for compatibility even though this build is headless.
-            FPSLimit = 99999999,           -- FPS cap from the config you sent.
+            FPSLimit = 10,           -- FPS cap from the config you sent.
 
             RenderModes = {          -- Performance/render optimizations to enable.
                 "Delete Map",        -- Removes supported map objects to reduce rendering load.
@@ -564,8 +567,8 @@ elseif game.PlaceId == LOBBY_ID_CONFIG
     setToggle("HideUIToggle", C.HideUI)
     setToggle("EnableMobileUI", C.MobileUI)
 
-    setToggle("AutoStartMissionToggle", C.AutoStartMission)
-    setToggle("AutoWavesToggle", C.AutoWaves)
+    setToggle("AutoStartMissionToggle", game.PlaceId==LOBBY_ID_CONFIG and C.AutoStartMission)
+    setToggle("AutoWavesToggle", game.PlaceId==LOBBY_ID_CONFIG and C.AutoWaves)
     setToggle("AutoTeleportToggle", C.AutoTeleport)
 
     setValue("MissionDropdown", C.Mission.Name)
@@ -641,6 +644,8 @@ elseif game.PlaceId == LOBBY_ID_CONFIG
 
     setToggle("ClaimQuestToggle", C.Claims.Quests)
     setToggle("ClaimAchievementToggle", C.Claims.Achievements)
+    setToggle("AchievementArtifactsToggle", C.Claims.AchievementArtifacts)
+    setToggle("ArtifactDamageRollToggle", C.Claims.ArtifactDamageRoll)
     setToggle("ClaimBattlepassToggle", C.Claims.Battlepass)
     setToggle("BuyBattlepassPremiumToggle", C.Claims.AutoBuyPremium)
     setValue("ClaimDelaySlider", C.Claims.Delay)
@@ -755,6 +760,37 @@ CONFIG.Buttons = ACTIVE.Buttons
 CONFIG.ActiveSection = CurrentConfigSection
 
 getgenv().TownShipHeadlessConfig = CONFIG
+
+do
+    if game.PlaceId==14932214603 then
+        local cfg=CONFIG.Lobby or {}
+        local trading=cfg.Trade or {}
+        local tradeActive=false
+        for _,key in ipairs({"AutoTrade","ReceiverSend","ReceiverAccept","SenderSend","SenderAccept","AcceptTrade","CurrentPlayersSend","CurrentPlayersAccept"})do
+            if trading[key]==true then tradeActive=true;break end
+        end
+        if (cfg.AutoStartMission==true or cfg.AutoWaves==true)and not tradeActive then
+            local env=getgenv()
+            if env.AstaTradeToTownRouting and os.clock()-env.AstaTradeToTownRouting<10 then return end
+            env.AstaTradeToTownRouting=os.clock()
+            local player=game:GetService("Players").LocalPlayer
+            local path="Asta_AOTR_Prestige_AutoResume_"..player.UserId..".luau"
+            if type(queue_on_teleport)=="function"and type(readfile)=="function"then
+                local config=game:GetService("HttpService"):JSONEncode(CONFIG)
+                queue_on_teleport(string.format('getgenv().AstaPrestigeResumeConfig=game:GetService("HttpService"):JSONDecode(%q);loadstring(readfile(%q))()',config,path))
+            end
+            print("[Mission] Trade Central detected; returning to Town Central for artifact farming")
+            local ok,err=pcall(function()
+                game:GetService("ReplicatedStorage"):WaitForChild("Assets",20):WaitForChild("Remotes",20):WaitForChild("POST",20):FireServer("Functions","Teleport","Lobby")
+            end)
+            if not ok then
+                warn("[Mission] Native Lobby teleport failed: "..tostring(err))
+                game:GetService("TeleportService"):Teleport(14916516914,player)
+            end
+            return
+        end
+    end
+end
 
 -- ============================================================
 -- ULTRA-FAST BOOT
@@ -1451,6 +1487,23 @@ end
 
 do
     local env=getgenv()
+-- The supplied controller exclusively owns Blade movement, attacks, reload and refill.
+do
+    local env=getgenv()
+    env.AstaSupplyWorkerToken={}
+    if env.AstaBladeReloadHold then env.AstaBladeReloadHold:Destroy();env.AstaBladeReloadHold=nil end
+    local c=game.Players.LocalPlayer.Character
+    local actor=c and c:FindFirstChild("Actor")
+    if actor then
+        actor:SetAttribute("AstaSupplyEnabled",false)
+        actor:SetAttribute("AstaSupplyJob",(actor:GetAttribute("AstaSupplyJob")or 0)+1)
+        actor:SetAttribute("AstaSupplyRunning",false)
+        actor:SetAttribute("AstaSupplyMode","Idle")
+    end
+    env.IsReloading=false;env.IsRefilling=false
+    if env.AstaBladeController then env.AstaBladeController:Destroy();env.AstaBladeController=nil end
+end
+
     local factorySource=[======[
 local bridge = ...
 local env = getgenv()
@@ -1480,7 +1533,7 @@ local controller = {
     MaxTargets = 15,
     ForceNine = true,
     AutoMove = true,
-    AutoRefill = false,
+    AutoRefill = true,
     AutoRetry = false,
     RetryDelay = 2,
     RetryAttempts = 0,
@@ -1519,14 +1572,21 @@ local function clearMovement()
     movementRoot = nil
 end
 local function updateMovement()
-    if bridge.Paused() then clearMovement() return end
+    if bridge.Paused()then clearMovement();return end
     local char = player.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
     local target = movementTarget
     local actor = char and char:FindFirstChild("Actor")
     if actor and actor:GetAttribute("AOTRAKRefilling") == true then
-        clearMovement() return
+        clearMovement()
+        local hover=actor:GetAttribute("AOTRAKRefillHover")
+        if hover and humanoid and humanoid.Health>0 and controller.Enabled then
+            root.CFrame=hover
+            root.AssemblyLinearVelocity=Vector3.zero
+            root.AssemblyAngularVelocity=Vector3.zero
+        end
+        return
     end
     if not controller.Enabled or not controller.AutoMove or not root or not humanoid
         or humanoid.Health <= 0 or not target or not target.Parent or not target.CanTouch then
@@ -1631,8 +1691,7 @@ local actor = character and character:FindFirstChild("Actor")
 if not actor then return end
 local job = actor:GetAttribute("AOTRAKJob")
 local function running()
-    return actor:GetAttribute("AstaSupplyMode")~="Reload" and actor:GetAttribute("AstaSupplyMode")~="Refill"
-        and actor:GetAttribute("AOTRAKPaused") ~= true
+    return actor:GetAttribute("AOTRAKPaused") ~= true
         and actor:GetAttribute("AOTRAKEnabled") == true
         and actor:GetAttribute("AOTRAKJob") == job and player.Character == character
 end
@@ -1713,10 +1772,128 @@ local function attack()
             actor:SetAttribute("AOTRAKStatus", "Reloading blades") return false
         end
         if modules.ODMG.Blade_Check(host, character) then return true end
-        -- Reload/refill are owned by the main hub.
+        if actor:GetAttribute("AOTRAKAutoRefill")~=true then
+            actor:SetAttribute("AOTRAKStatus","Auto reload disabled");return false
+        end
+        modules.ODMG.Reload(host, false)
         actor:SetAttribute("AOTRAKStatus", variables.Reload and "Reloading blades" or "No spare blades — refill supplies")
         return false
     end
+    local function suppliesReady()
+        if actor:GetAttribute("AOTRAKAutoRefill") ~= true then return true end
+        local variables = host.Cache.Variables
+        if variables.Reload or variables.Full_Reload then
+            actor:SetAttribute("AOTRAKStatus", "Reloading blades") return false
+        end
+        local rig = modules.ODMG.Rig(host, character)
+        if not rig then
+            actor:SetAttribute("AOTRAKStatus", "Waiting for blade equipment") return false
+        end
+        local spare = modules.ODMG.Get_Reload(rig)
+        local hasDurability = modules.ODMG.Blade_Check(host, character) == true
+        if hasDurability then getgenv().AOTRAwaitingBladeEquip = nil end
+        if not hasDurability and getgenv().AOTRAwaitingBladeEquip and spare then
+            modules.ODMG.Reload(host, false)
+            actor:SetAttribute("AOTRAKStatus", "Equipping fresh blades after refill")
+            return false
+        end
+        local function spareCount()
+            if not rig then return 0 end
+            local count = 0
+            for index = 1, 3 do
+                local left = rig:FindFirstChild("Left_" .. index, true)
+                local right = rig:FindFirstChild("Right_" .. index, true)
+                if left and right and left:GetAttribute("Used") == nil then count += 1 end
+            end
+            return count
+        end
+        local sparesBefore = spareCount()
+        local stats = host.Loadout.Stats
+        local gas, maximum = tonumber(stats.ODM_Gas), tonumber(stats.Maximum_ODM_Gas)
+        local lowGas = gas and maximum and maximum > 0 and gas < maximum * 0.99
+        if hasDurability or sparesBefore > 0 then return true end
+        local refills = tonumber(player:GetAttribute("Refills")) or 0
+        local reference = modules.Zones.Reference
+        if reference and reference:IsA("ValueBase") then refills += tonumber(reference.Value) or 0 end
+        local last = getgenv().AOTRLastRefillAttempt or -math.huge
+        if os.clock() - last < 8 then
+            actor:SetAttribute("AOTRAKStatus", "Waiting before refill retry")
+            return false
+        end
+        local best, bestDistance
+        local searchRoot = workspace:FindFirstChild("Unclimbable") or workspace
+        for _, station in ipairs(searchRoot:QueryDescendants("#Refill")) do
+            if station:IsA("BasePart") then
+                local available = tonumber(station.Parent:GetAttribute("Refills")) or refills
+                if available > 0 then
+                    local distance = (root.Position - station.Position).Magnitude
+                    if not bestDistance or distance < bestDistance then best, bestDistance = station, distance end
+                end
+            end
+        end
+        if not best then
+            actor:SetAttribute("AOTRAKStatus", "No refill station with supplies available")
+            return false
+        end
+        if host.Cache.Variables.Reload or host.Cache.Variables.Full_Reload then return false end
+        getgenv().AOTRLastRefillAttempt = os.clock()
+        local chargesBefore = tonumber(best.Parent:GetAttribute("Refills")) or tonumber(player:GetAttribute("Refills"))
+        actor:SetAttribute("AOTRAKRefilling", true)
+        actor:SetAttribute("AOTRAKStatus", "Refilling supplies")
+        local returnPosition = root.CFrame
+        local previousStation = modules.Zones.Refill_Station
+        task.wait(0.1)
+        if not running() then actor:SetAttribute("AOTRAKRefilling", false) return false end
+        root.CFrame = best.CFrame * CFrame.new(0, 2, 0)
+        root.AssemblyLinearVelocity = Vector3.zero
+        task.wait(0.3)
+        if not running() then actor:SetAttribute("AOTRAKRefilling", false) return false end
+        modules.Zones.Refill_Station = best
+        host.Cache.Variables.Full_Reload = true
+        -- Native full-refill sequence sends Reload and updates gas on its normal timers.
+        modules.ODMG.Tasks(host, {150, 270, 330}, "Full_Reload")
+        -- Native Tasks sends the refill request synchronously; finish its timers in hover.
+        actor:SetAttribute("AOTRAKRefillHover",returnPosition)
+        root.CFrame=returnPosition
+        root.AssemblyLinearVelocity=Vector3.zero
+        root.AssemblyAngularVelocity=Vector3.zero
+        local function finishRefill()
+            actor:SetAttribute("AOTRAKRefillHover",nil)
+            if modules.Zones.Refill_Station == best then modules.Zones.Refill_Station = previousStation end
+            if running() and humanoid.Health > 0 then
+                root.CFrame = returnPosition
+                root.AssemblyLinearVelocity = Vector3.zero
+            end
+            actor:SetAttribute("AOTRAKRefilling", false)
+        end
+        local deadline = os.clock() + 8
+        repeat
+            task.wait(0.2)
+            if not running() then finishRefill() return false end
+            local newSpare = modules.ODMG.Get_Reload(rig)
+            local gasFull = not lowGas or maximum and tonumber(stats.ODM_Gas) and stats.ODM_Gas >= maximum * 0.99
+            local chargesNow = best.Parent and tonumber(best.Parent:GetAttribute("Refills")) or tonumber(player:GetAttribute("Refills"))
+            local suppliesConfirmed = spareCount() > sparesBefore or not spare and newSpare
+                or chargesBefore and chargesNow and chargesNow < chargesBefore
+            if suppliesConfirmed and newSpare and gasFull
+                and not host.Cache.Variables.Full_Reload then
+                actor:SetAttribute("AOTRAKRefillsCompleted", (actor:GetAttribute("AOTRAKRefillsCompleted") or 0) + 1)
+                if not modules.ODMG.Blade_Check(host, character) then
+                    getgenv().AOTRAwaitingBladeEquip = true
+                    modules.ODMG.Reload(host, false)
+                    actor:SetAttribute("AOTRAKStatus", "Refilled; equipping fresh blades")
+                else
+                    actor:SetAttribute("AOTRAKStatus", "Supplies refilled")
+                end
+                finishRefill()
+                return false
+            end
+        until os.clock() >= deadline
+        finishRefill()
+        actor:SetAttribute("AOTRAKStatus", "Refill sent; waiting for supply confirmation")
+        return false
+    end
+    if not suppliesReady() then return end
     if not bladesReady() then return end
     local folder = workspace:FindFirstChild("Titans")
     local titan = folder and folder:FindFirstChild(actor:GetAttribute("AOTRAKTarget") or "")
@@ -1757,7 +1934,7 @@ local function attack()
             task.wait(0.05)
             continue
         end
-        if not bladesReady() then return end
+        if not suppliesReady() or not bladesReady() then return end
         local speedDeadline = os.clock() + 1
         local minSpeed = actor:GetAttribute("AOTRAKMinimumHitSpeed") or 180
         while running() and root.AssemblyLinearVelocity.Magnitude < minSpeed and os.clock() < speedDeadline do
@@ -1816,31 +1993,33 @@ end
 local ok, err = pcall(attack)
 if not ok and actor:GetAttribute("AOTRAKJob") == job then
     actor:SetAttribute("AOTRAKRefilling", false)
+    actor:SetAttribute("AOTRAKRefillHover",nil)
     actor:SetAttribute("AOTRAKError", tostring(err))
 end
 if actor:GetAttribute("AOTRAKJob") == job then actor:SetAttribute("AOTRAKBusy", false) end
 ]=]
 
 local function show(message)
-    controller.Status = message
-    local actor = player.Character and player.Character:FindFirstChild("Actor")
+    controller.Status=message
+    local actor=player.Character and player.Character:FindFirstChild("Actor")
     if actor then
-        controller.ConfirmedKills = actor:GetAttribute("AOTRAKConfirmedKills") or 0
-        controller.HitsSent = actor:GetAttribute("AOTRAKSent") or controller.HitsSent
+        controller.ConfirmedKills=actor:GetAttribute("AOTRAKConfirmedKills")or 0
+        controller.BestBurstKills=actor:GetAttribute("AOTRAKBestBurstKills")or 0
+        controller.RefillsCompleted=actor:GetAttribute("AOTRAKRefillsCompleted")or 0
     end
 end
 local function handleRewards()
     local ui=player.PlayerGui:FindFirstChild("Interface")
     local rewards=ui and ui:FindFirstChild("Rewards")
-    local b=rewards and rewards:FindFirstChild("Retry",true)
-    if not b or not b:IsA("GuiButton") or not b.Active then return false end
-    local a=b
-    while a and a~=player.PlayerGui do
-        if a:IsA("GuiObject") and not a.Visible then return false end
-        if a:IsA("ScreenGui") and not a.Enabled then return false end
-        a=a.Parent
+    local button=rewards and rewards:FindFirstChild("Retry",true)
+    if not button or not button:IsA("GuiButton")or not button.Active then return false end
+    local ancestor=button
+    while ancestor and ancestor~=player.PlayerGui do
+        if ancestor:IsA("GuiObject")and not ancestor.Visible then return false end
+        if ancestor:IsA("ScreenGui")and not ancestor.Enabled then return false end
+        ancestor=ancestor.Parent
     end
-    clearMovement();show("Mission finished");return true
+    movementTarget=nil;clearMovement();show("Mission finished");return true
 end
 local function selectTarget(root, folder)
     local best, score
@@ -1879,9 +2058,9 @@ local function selectTarget(root, folder)
 end
 
 local function step()
-    if bridge.Paused() then
-        if activeActor then activeActor:SetAttribute("AOTRAKPaused",true) end
-        clearMovement();show("Paused for main reload/refill or Prestige");return
+    if bridge.Paused()then
+        if activeActor then activeActor:SetAttribute("AOTRAKPaused",true)end
+        clearMovement();show("Paused for Prestige");return
     end
     if handleRewards() then return end
     local char = player.Character
@@ -1956,6 +2135,7 @@ function controller:Stop()
         activeActor:SetAttribute("AOTRAKEnabled", false)
         activeActor:SetAttribute("AOTRAKRetryEnabled", false)
         activeActor:SetAttribute("AOTRAKRefilling", false)
+        activeActor:SetAttribute("AOTRAKRefillHover",nil)
         activeActor:SetAttribute("AOTRAKJob", (activeActor:GetAttribute("AOTRAKJob") or 0) + 1)
         activeActor:SetAttribute("AOTRAKBusy", false)
     end
@@ -1968,7 +2148,7 @@ function controller:Start()
     self.Enabled = true
     self.LastError = nil
     movementConnection = RunService.Heartbeat:Connect(function()
-        if activeActor then activeActor:SetAttribute("AOTRAKPaused",bridge.Paused()) end
+        if activeActor then activeActor:SetAttribute("AOTRAKPaused",bridge.Paused())end
         local ok, err = pcall(updateMovement)
         if not ok then
             self.LastError = tostring(err)
@@ -2120,7 +2300,7 @@ local function near(pos,radius)
     return false
 end
 local function fight(range,count)
-    combat.AutoRetry=false;combat.AutoMove=true;combat.Range=range;combat.MaxTargets=count or 9
+    combat.AutoRetry=false;combat.AutoRefill=true;combat.AutoMove=true;combat.Range=range;combat.MaxTargets=count or 9
     if not combat.Enabled then combat:Start()end
 end
 local function hold(root,pos)
@@ -2249,11 +2429,7 @@ if not ok then report("Stopped: "..tostring(err));warn("[Auto Thunder Spears] ".
         if env.AstaBladeController then return env.AstaBladeController end
         assert(type(run_on_actor)=="function" and type(filtergc)=="function","Native Blade requires run_on_actor/filtergc")
         local controller=assert(loadstring(factorySource))({Paused=function()
-            local c=game.Players.LocalPlayer.Character
-            local actor=c and c:FindFirstChild("Actor")
-            local mode=actor and actor:GetAttribute("AstaSupplyMode")
-            return AstaPrestigeExclusive.held or env.IsReloading or env.IsRefilling
-                or mode=="Reload" or mode=="Refill"
+            return AstaPrestigeExclusive.held
         end})
         env.AstaBladeController=controller
         return controller
@@ -3678,8 +3854,10 @@ end
 -- Slot resolution now falls back to the server's Current_Slot from Data/Copy
 -- when the client Player attribute is temporarily missing (Slot=nil).
 local equipmentSnapshot = {time = -math.huge, busy = false}
+getgenv().AstaMissionArtifactWindowClosed=false
 local equipmentVersion = {}
 getgenv().AstaEquipmentWorkerVersion = equipmentVersion
+getgenv().AstaArtifactMissionPreflight=nil
 
 local function normalizeEquipmentSlot(value)
     if value == nil then return nil end
@@ -3706,7 +3884,7 @@ end
 
 local equipmentRemoteBusy=false
 local function equipmentInvoke(key,route,action,...)
-    while getgenv().AstaModifiersApplying or missionQuietActive() do task.wait(.05)end
+    while getgenv().AstaModifiersApplying or (missionQuietActive()and AstaMissionQuiet.owner~=coroutine.running())do task.wait(.05)end
     local deadline=os.clock()+12
     while equipmentRemoteBusy and os.clock()<deadline do task.wait(.025)end
     if equipmentRemoteBusy or getgenv().AstaEquipmentWorkerVersion~=equipmentVersion then return nil end
@@ -3714,7 +3892,7 @@ local function equipmentInvoke(key,route,action,...)
     local player=game.Players.LocalPlayer
     if key and not equipmentSlotStillCurrent(player,key)then return nil end
     equipmentRemoteBusy=true
-    if route=="S_Equipment"or (route=="Functions"and (action=="Tier"or action=="Battlepass"))then equipmentSnapshot.time=-math.huge end
+    if route=="S_Equipment"or route=="S_Achievements"or (route=="Functions"and (action=="Tier"or action=="Battlepass"))then equipmentSnapshot.time=-math.huge end
     local args=table.pack(...)
     local ok,values=pcall(function()
         return table.pack(game.ReplicatedStorage.Assets.Remotes.GET:InvokeServer(route,action,table.unpack(args,1,args.n)))
@@ -3769,6 +3947,11 @@ local function readEquipmentData(force, expectedKey, requiredKind)
         if requiredKind == "tree" and not(type(skills)=="table"and type(skills.Unlocked)=="table")then return nil end
         if requiredKind == "perks" and not hasPerks then return nil end
         if requiredKind=="battlepass"and not(type(slot.Battlepass)=="table"and type(slot.Battlepass.Claimed)=="table"and type(slot.Battlepass.Tier)=="number")then return nil end
+        if requiredKind=="artifacts"and not(type(slot.Titles)=="table"and type(slot.Claimed)=="table"
+            and type(slot.Artifacts)=="table"and type(slot.Artifacts.Storage)=="table"and type(slot.Artifacts.Equipped)=="table")then return nil end
+        if requiredKind=="artifactroll"and not(type(slot.Artifacts)=="table"
+            and type(slot.Artifacts.Storage)=="table"and type(slot.Artifacts.Equipped)=="table"
+            and type(slot.Currency)=="table"and tonumber(slot.Currency.Gold)~=nil)then return nil end
         if requiredKind == nil and not hasSkills and not hasPerks then return nil end
         return key
     end
@@ -7532,9 +7715,17 @@ if not MissionGET then
 end
 
 local function SafeMissionCall(...)
+    if game.PlaceId~=14916516914 then return false,nil end
     if getgenv().AstaTSOwns then return false,nil end
     if not MissionGET then return false, nil end
     local args = {...}
+    if args[1]=="S_Missions"and args[2]=="Start"then
+        local check=getgenv().AstaArtifactMissionPreflight
+        if type(check)=="function"then
+            local ok,allowed=pcall(check,not missionQuietActive())
+            if not ok or not allowed then return false,nil end
+        elseif CONFIG.Lobby.Claims.ArtifactDamageRoll==true then return false,nil end
+    end
     local success, result = pcall(function()
         return MissionGET:InvokeServer(AstaAwaitPrestige(unpack(args, 1, table.getn(args))))
     end)
@@ -7622,7 +7813,7 @@ if Tabs.Lobby then
         Difficulty = "Hardest"
     }
 
-    local MissionDelay = 0
+    local MissionDelay = math.clamp(tonumber(CONFIG.Lobby.Mission.Delay)or 0,0,600)
     local missionRunning = false
     local missionBusy = false
     local missionSessionId = 0
@@ -8068,6 +8259,55 @@ if Tabs.Lobby then
         return false
     end
 
+    local missionDelayClock={}
+    local function WaitForMissionDelay(mySession)
+        if missionDelayClock.session~=mySession then
+            missionDelayClock={session=mySession,started=os.clock()}
+            getgenv().AstaMissionArtifactWindowClosed=false
+        end
+        local lastSeconds
+        while missionRunning and missionSessionId==mySession do
+            if getgenv().AstaTSOwns then return false end
+            local cfg=CONFIG.Lobby and CONFIG.Lobby.Mission
+            local seconds=math.clamp(tonumber(cfg and cfg.Delay)or tonumber(MissionDelay)or 0,0,600)
+            local remaining=math.max(0,seconds-(os.clock()-missionDelayClock.started))
+            getgenv().AstaMissionDelayStatus={Session=mySession,Delay=seconds,Remaining=remaining,Complete=remaining<=0}
+            if remaining<=0 then
+                -- Gold-funded artifact work may continue beyond the normal lobby delay.
+                getgenv().AstaMissionArtifactWindowClosed=false
+                if not missionDelayClock.finished then
+                    print("[Mission] Lobby delay complete; checking Gold-funded artifact work")
+                    missionDelayClock.finished=true
+                end
+                return true
+            end
+            local rounded=math.ceil(remaining)
+            if rounded~=lastSeconds and (lastSeconds==nil or rounded%5==0)then
+                print("[Mission] Lobby delay: "..rounded.."s remaining")
+                lastSeconds=rounded
+            end
+            task.wait(math.min(.1,remaining))
+        end
+        return false
+    end
+
+    local function WaitForArtifactsBeforeMission(mySession)
+        local lastMessage
+        getgenv().AstaMissionArtifactWindowClosed=false
+        while missionRunning and missionSessionId==mySession do
+            if getgenv().AstaTSOwns then return false end
+            local check=getgenv().AstaArtifactMissionPreflight
+            if type(check)=="function"then
+                local ok,allowed,reason=pcall(check,true)
+                if ok and allowed then getgenv().AstaMissionArtifactWindowClosed=true;return true end
+                local message=ok and tostring(reason)or "Artifact preflight failed; waiting"
+                if message~=lastMessage then print("[Artifacts/Mission] "..message);lastMessage=message end
+            elseif CONFIG.Lobby.Claims.ArtifactDamageRoll~=true then getgenv().AstaMissionArtifactWindowClosed=true;return true end
+            task.wait(.25)
+        end
+        return false
+    end
+
     local function RunMissionCycle(mySession)
         if getgenv().AstaTSOwns then return end
         if not missionRunning or missionSessionId ~= mySession then return end
@@ -8076,15 +8316,14 @@ if Tabs.Lobby then
             pcall(function() WaitForLobbyUI(12) end)
         end
 
-        if MissionDelay > 0 then
-            task.wait(MissionDelay)
-        end
+        if not WaitForMissionDelay(mySession)then return end
 
         if not missionRunning or missionSessionId ~= mySession then return end
 
         if not missionRunning or missionSessionId ~= mySession then return end
 
         if not WaitForPrestigeBeforeMission(mySession) then return end
+        if not WaitForArtifactsBeforeMission(mySession)then return end
         if getgenv().AstaTSOwns then return end
         if not missionRunning or missionSessionId ~= mySession then return end
 
@@ -8162,11 +8401,12 @@ if Tabs.Lobby then
 
         if AstaPrestigeExclusive.held then return end
         local quietWaitDeadline=os.clock()+5
-        while missionQuietActive()and os.clock()<quietWaitDeadline do
+        while (missionQuietActive()or equipmentRemoteBusy or equipmentSnapshot.busy)and os.clock()<quietWaitDeadline do
             if not missionRunning or missionSessionId~=mySession then return end
             task.wait(.05)
         end
-        if missionQuietActive()then return end
+        if missionQuietActive()or equipmentRemoteBusy or equipmentSnapshot.busy then return end
+        if not WaitForArtifactsBeforeMission(mySession)then return end
         AstaMissionQuiet.owner=coroutine.running()
         AstaMissionQuiet.untilTime=os.clock()+60
         AstaMissionQuiet.isValid=function()return missionRunning and missionSessionId==mySession end
@@ -8326,13 +8566,14 @@ if Tabs.Lobby then
     })
 
     MissionTab:AddSlider("MissionDelaySlider", {
-        Text = "Delay",
+        Text = "Lobby Delay (seconds)",
         Default = MissionDelay,
         Min = 0,
-        Max = 60,
+        Max = 600,
         Rounding = 0,
         Callback = function(v)
-            MissionDelay = v
+            MissionDelay = math.clamp(tonumber(v)or 0,0,600)
+            CONFIG.Lobby.Mission.Delay=MissionDelay
         end
     })
 
@@ -8367,6 +8608,7 @@ if Tabs.Lobby then
                     getgenv().MissionStarting = true
                     missionBusy = false
                     missionSessionId += 1
+                    getgenv().AstaMissionArtifactWindowClosed=false
                     local session = missionSessionId
 
                     print("[Mission] missionRunning = true | session =", session)
@@ -8389,6 +8631,7 @@ if Tabs.Lobby then
                     missionStartTask = nil
                 end
                 missionRunning = false
+                getgenv().AstaMissionArtifactWindowClosed=false
                 getgenv().MissionStarting = false
                 missionBusy = false
                 missionSessionId += 1
@@ -8465,6 +8708,16 @@ if Tabs.Lobby then
             end
             wavesBusy = true
 
+            local artifactReady=false
+            while wavesRunning and wavesSessionId==mySession do
+                local check=getgenv().AstaArtifactMissionPreflight
+                if type(check)=="function"then
+                    local ok,allowed=pcall(check,true)
+                    if ok and allowed then artifactReady=true;break end
+                elseif CONFIG.Lobby.Claims.ArtifactDamageRoll~=true then artifactReady=true;break end
+                task.wait(.25)
+            end
+            if not artifactReady then wavesBusy=false;break end
             CreateWave()
             task.wait(0.2)
 
@@ -11960,6 +12213,440 @@ if IsLobbyLobby() then
             end
         end)
 
+-- Claim achievement category artifacts and equip them using verified current-slot data.
+do
+local function artifactOwnedCategory(slot,id)
+    for _,value in pairs(slot.Claimed or {})do if tonumber(value)==tonumber(id)then return true end end
+    return false
+end
+local function artifactCategoryComplete(category,slot)
+    local count=0
+    for id,definition in pairs(category.Titles or {})do
+        if tonumber(id)~=72 and ((definition.Rarity~="Mythic"and definition.Rarity~="Exclusive")or definition.Title=="Apex")then
+            count+=1
+            local state=slot.Titles[id]or slot.Titles[tostring(id)]or slot.Titles[tonumber(id)]
+            if type(state)~="table"or state.Owned~=true then return false end
+        end
+    end
+    return count>0
+end
+local function artifactEquipPlan(slot,titles,definitions)
+    local rewards={}
+    for _,category in pairs(titles)do
+        local item=type(category)=="table"and category.Item
+        if item and definitions[item.Tag]then rewards[item.Tag]=true end
+    end
+    local choices={Head={},Body={}}
+    for uid,item in pairs(slot.Artifacts.Storage)do
+        local definition=definitions[item.Name]
+        local kind=definition and definition.Slot
+        local category=(kind=="Hat"or kind=="Face")and "Head"or ((kind=="Neck"or kind=="Back")and "Body"or nil)
+        if rewards[item.Name]and category and slot.Artifacts.Equipped[category]then
+            local preferred=(category=="Head"and item.Name=="Crown")or (category=="Body"and item.Name=="Handkerchief")
+            choices[category][#choices[category]+1]={uid=uid,name=item.Name,category=category,priority=preferred and 0 or 1}
+        end
+    end
+    local plan={}
+    for _,category in ipairs({"Head","Body"})do
+        local current=slot.Artifacts.Equipped[category]
+        local list=choices[category]
+        table.sort(list,function(a,b)
+            if a.priority~=b.priority then return a.priority<b.priority end
+            if current and (a.uid==current.ID or b.uid==current.ID)then return a.uid==current.ID end
+            if a.name~=b.name then return a.name<b.name end
+            return tostring(a.uid)<tostring(b.uid)
+        end)
+        if list[1]and current.ID~=list[1].uid then plan[#plan+1]=list[1]end
+    end
+    return plan
+end
+
+    local pending={}
+    local nextPass=0
+    local function active()
+        return CONFIG.Lobby.Claims.AchievementArtifacts==true
+            and getgenv().AstaEquipmentWorkerVersion==equipmentVersion
+            and workspace:GetAttribute("Map")=="Lobby"and not AstaPrestigeExclusive.held
+            and not missionQuietActive()and not getgenv().AstaTSOwns
+    end
+    local function read(key)
+        local d,k=readEquipmentData(true,key,"artifacts")
+        if not d or not k then return nil end
+        return d.Slots[k],k
+    end
+    local function mutate(key,route,action,...)
+        if not active()then return nil end
+        local response=equipmentInvoke(key,route,action,...)
+        if not active()then return nil end
+        if type(response)=="table"and normalizeEquipmentSlot(response.Current_Slot)==key
+            and response.Slots and type(response.Slots[key])=="table"then return response.Slots[key]end
+        equipmentSnapshot.time=-math.huge
+        task.wait(.2)
+        return read(key)
+    end
+    local function pass()
+        local titles=require(game.ReplicatedStorage.Modules.Storage.Titles)
+        local definitions=require(game.ReplicatedStorage.Modules.Storage.Artifacts)
+        local slot,key=read()
+        if not slot or not active()then return end
+        local categories={}
+        for _,category in pairs(titles)do
+            if type(category)=="table"and category.Item and definitions[category.Item.Tag]then categories[#categories+1]=category end
+        end
+        table.sort(categories,function(a,b)return a.Item.ID<b.Item.ID end)
+        -- Claim completed individual achievements before testing category ownership.
+        for _,category in ipairs(categories)do
+            local ids={}
+            for id in pairs(category.Titles or {})do ids[#ids+1]=id end
+            table.sort(ids,function(a,b)return tonumber(a)<tonumber(b)end)
+            for _,id in ipairs(ids)do
+                if not active()then return end
+                local definition=category.Titles[id]
+                local state=slot.Titles[id]or slot.Titles[tostring(id)]or slot.Titles[tonumber(id)]
+                local required=tonumber(definition.Requirement)
+                if type(state)=="table"and state.Owned~=true and required and tonumber(state.Current)
+                    and tonumber(state.Current)>=required then
+                    slot=mutate(key,"S_Achievements","Claim",tonumber(id))
+                    if not slot then return end
+                end
+            end
+            if not artifactOwnedCategory(slot,category.Item.ID)and artifactCategoryComplete(category,slot)then
+                slot=mutate(key,"S_Achievements","Category",category.Item.ID)
+                if not slot then return end
+                if artifactOwnedCategory(slot,category.Item.ID)then
+                    print("[Artifacts] Category reward claimed: "..category.Item.Tag)
+                else print("[Artifacts] Category claim unconfirmed: "..category.Item.Tag)end
+            end
+        end
+        for _,entry in ipairs(artifactEquipPlan(slot,titles,definitions))do
+            if not active()then return end
+            slot=read(key)
+            if not slot then return end
+            local current=slot.Artifacts.Equipped[entry.category]
+            local item=slot.Artifacts.Storage[entry.uid]
+            local marker=key..":"..entry.category
+            if current and current.ID==entry.uid then pending[marker]=nil
+            elseif current and item and item.Name==entry.name then
+                local previous=pending[marker]
+                if not previous or previous.uid~=entry.uid or (os.clock()-previous.time>=30 and previous.attempts<3)then
+                    pending[marker]={uid=entry.uid,time=os.clock(),attempts=(previous and previous.uid==entry.uid and previous.attempts or 0)+1}
+                    slot=mutate(key,"S_Equipment","Artifact_State",entry.uid,entry.category)
+                    if not slot then return end
+                    local equipped=slot.Artifacts.Equipped[entry.category]
+                    if equipped and equipped.ID==entry.uid then
+                        pending[marker]=nil
+                        print("[Artifacts] Equipped "..entry.name.." -> "..entry.category)
+                    else print("[Artifacts] Equip unconfirmed: "..entry.name.."; retry delayed")end
+                end
+            end
+        end
+    end
+    AutoClaimGroup:AddToggle("AchievementArtifactsToggle",{
+        Text="Auto Claim + Equip Achievement Artifacts",Default=false,
+        Callback=function(value)CONFIG.Lobby.Claims.AchievementArtifacts=value;nextPass=0 end,
+    })
+    task.spawn(function()
+        while getgenv().AstaEquipmentWorkerVersion==equipmentVersion do
+            if active()and os.clock()>=nextPass then
+                nextPass=os.clock()+30
+                local ok,err=pcall(pass)
+                if not ok then warn("[Artifacts] "..tostring(err))end
+            end
+            task.wait(.5)
+        end
+    end)
+end
+
+do
+local function artifactDamageDecision(item,values,items,gold)
+    if type(item)~="table"or type(item.Stats)~="table"or type(item.Locked)~="table"then return "data"end
+    local good={}
+    for i=1,2 do
+        if type(item.Locked[i])~="boolean"then return "data"end
+        local stat=item.Stats[i]
+        local definition=type(stat)=="table"and values.Rollable[stat.Index]
+        good[i]=type(definition)=="table"and definition.Stat=="ODM_Damage"and (tonumber(stat.Value)or 0)>0
+    end
+    -- Protect a good stat before considering any paid roll.
+    for i=1,2 do if good[i]and not item.Locked[i]then return "lock",i,true end end
+    for i=1,2 do if not good[i]and item.Locked[i]then return "lock",i,false end end
+    if good[1]and good[2]then return "done"end
+    local info=items[item.Name]
+    local cost=info and tonumber(values.Roll_Costs[info.Rarity])
+    if not cost or cost<=0 then return "data"end
+    if item.Locked[1]or item.Locked[2]then cost=math.floor(cost*1.5)end
+    if not tonumber(gold)or tonumber(gold)<cost then return "gold",cost end
+    return "roll",cost
+end
+local function artifactDamageFingerprint(item)
+    local values={item.Name}
+    for i=1,2 do
+        local s=item.Stats[i]
+        values[#values+1]=tostring(item.Locked[i])..":"..tostring(s and s.Index)..":"..tostring(s and s.Value)
+    end
+    return table.concat(values,"|")
+end
+
+
+local function artifactGoldMissionDecision(slot,values,items,autoEquip,titles)
+    local titleStates=type(slot.Titles)=="table"and slot.Titles or {}
+    local gold=tonumber((slot.Currency or {}).Gold)
+    if not gold then return false,"Waiting for verified Gold"end
+    if gold<=0 then return true,"No Gold; mission may start"end
+    local targets={Head="Crown",Body="Handkerchief"}
+    for _,category in ipairs({"Head","Body"})do
+        local name=targets[category]
+        local equipped=slot.Artifacts.Equipped[category]
+        local item=equipped and slot.Artifacts.Storage[equipped.ID]
+        local owned
+        for _,candidate in pairs(slot.Artifacts.Storage)do if candidate.Name==name then owned=candidate;break end end
+        if autoEquip and owned and (not item or item.Name~=name)then
+            local cost=items[name]and tonumber(values.Roll_Costs[items[name].Rarity])
+            if cost and gold>=cost then return false,"Waiting to equip "..name end
+        end
+        if autoEquip and not owned then
+            local cost=items[name]and tonumber(values.Roll_Costs[items[name].Rarity])
+            if cost and gold>=cost then
+                for _,definition in pairs(titles or {})do
+                    if type(definition)=="table"and definition.Item and definition.Item.Tag==name then
+                        local ready,total=true,0
+                        for id,entry in pairs(definition.Titles or {})do
+                            if tonumber(id)~=72 and ((entry.Rarity~="Mythic"and entry.Rarity~="Exclusive")or entry.Title=="Apex")then
+                                total+=1
+                                local state=titleStates[id]or titleStates[tostring(id)]or titleStates[tonumber(id)]
+                                local requirement=tonumber(entry.Requirement)
+                                if type(state)~="table"or not(state.Owned==true or requirement
+                                    and tonumber(state.Current)and tonumber(state.Current)>=requirement)then ready=false end
+                            end
+                        end
+                        if ready and total>0 then return false,"Waiting to claim "..name end
+                    end
+                end
+            end
+        end
+        if item and (item.Name=="Crown"or item.Name=="Handkerchief")then
+            if type(item.Stats)~="table"or type(item.Locked)~="table"then return false,"Waiting for artifact data"end
+            local good=0
+            for i=1,2 do
+                local stat=item.Stats[i]
+                local definition=type(stat)=="table"and values.Rollable[stat.Index]
+                if type(definition)=="table"and definition.Stat=="ODM_Damage"and (tonumber(stat.Value)or 0)>0 then good+=1 end
+            end
+            if good==2 then
+                if item.Locked[1]~=true or item.Locked[2]~=true then return false,"Locking completed damage stats: "..item.Name end
+            else
+                local rarity=items[item.Name]and items[item.Name].Rarity
+                local cost=rarity and tonumber(values.Roll_Costs[rarity])
+                if not cost then return false,"Waiting for artifact cost"end
+                -- Price after protecting good stats and unlocking unwanted ones.
+                if good==1 then cost=math.floor(cost*1.5)end
+                if gold>=cost then return false,"Gold available; rolling "..item.Name end
+            end
+        end
+    end
+    return true,"Artifacts complete, unavailable, or Gold insufficient; mission may start"
+end
+
+    local responseCache
+    local metrics={Requests=0,Confirmed=0,Rolls=0,Locks=0,Unconfirmed=0}
+    getgenv().AstaArtifactRollMetrics=metrics
+    local nextRoll=0
+    local pending={}
+    local lastMessage
+    local function log(message)
+        if message~=lastMessage then print("[ArtifactDamage] "..message);lastMessage=message end
+    end
+    local function active()
+        return CONFIG.Lobby.Claims.ArtifactDamageRoll==true
+            and not getgenv().AstaMissionArtifactWindowClosed
+            and getgenv().AstaEquipmentWorkerVersion==equipmentVersion
+            and workspace:GetAttribute("Map")=="Lobby"and not AstaPrestigeExclusive.held
+            and (not missionQuietActive()or AstaMissionQuiet.owner==coroutine.running())
+            and not getgenv().AstaTSOwns
+    end
+    local function read(key)
+        if responseCache and AstaMissionQuiet.owner==coroutine.running()
+            and (key==nil or key==responseCache.key)
+            and equipmentSlotStillCurrent(game.Players.LocalPlayer,responseCache.key)then
+            return responseCache.slot,responseCache.key
+        end
+        local d,k=readEquipmentData(true,key,"artifactroll")
+        if not d or not k then return nil end
+        return d.Slots[k],k
+    end
+    local function tickRoll()
+        if not active()then return end
+        local values=require(game.ReplicatedStorage.Modules.Storage.Values)
+        local items=require(game.ReplicatedStorage.Modules.Storage.Items)
+        local slot,key=read()
+        if not slot or not active()then log("Waiting for current-slot artifact data");return end
+        local waitingGold=false
+        local equipped=0
+        for _,category in ipairs({"Head","Body"})do
+            local state=slot.Artifacts.Equipped[category]
+            local uid=state and state.ID
+            local item=uid and slot.Artifacts.Storage[uid]
+            if item and (item.Name=="Crown"or item.Name=="Handkerchief")then
+                equipped+=1
+                local marker=key..":"..uid
+                local action,a,wanted=artifactDamageDecision(item,values,items,(slot.Currency or {}).Gold)
+                local previous=pending[marker]
+                if previous then
+                    local fingerprint=artifactDamageFingerprint(item)
+                    local gold=tonumber((slot.Currency or {}).Gold)
+                    local resolved=previous.action=="lock"and item.Locked[previous.index]==previous.wanted
+                        or previous.action=="roll"and (fingerprint~=previous.fingerprint
+                            or gold and previous.gold and gold<previous.gold)
+                    if resolved then pending[marker]=nil
+                    elseif os.clock()-previous.time<3 then
+                        nextRoll=os.clock()+.5;log("Waiting for "..item.Name.." mutation confirmation");return
+                    elseif gold==previous.gold and fingerprint==previous.fingerprint then
+                        -- Two fresh unchanged reads, separated in time, allow a delayed retry.
+                        if not previous.unchangedAt then
+                            previous.unchangedAt=os.clock();nextRoll=os.clock()+1;return
+                        elseif os.clock()-previous.unchangedAt<1 then return
+                        else pending[marker]=nil end
+                    else
+                        nextRoll=os.clock()+2;log("Unconfirmed artifact operation; further rolls paused");return
+                    end
+                end
+                if action=="lock"or action=="roll"then
+                    if not active()then return end
+                    pending[marker]={action=action,index=action=="lock"and a or nil,wanted=wanted,
+                        fingerprint=artifactDamageFingerprint(item),gold=tonumber((slot.Currency or {}).Gold),time=os.clock()}
+                    responseCache=nil
+                    metrics.Requests+=1
+                    if action=="lock"then metrics.Locks+=1 else metrics.Rolls+=1 end
+                    local response
+                    if action=="lock"then response=equipmentInvoke(key,"S_Equipment","Artifact_Lock",uid,a)
+                    else response=equipmentInvoke(key,"S_Equipment","Artifact_Roll",uid)end
+                    if not active()then return end
+                    local fresh
+                    if type(response)=="table"and normalizeEquipmentSlot(response.Current_Slot)==key
+                        and response.Slots and response.Slots[key]then fresh=response.Slots[key]
+                    else
+                        equipmentSnapshot.time=-math.huge
+                        task.wait(.15)
+                        fresh=read(key)
+                    end
+                    local after=fresh and fresh.Artifacts and fresh.Artifacts.Storage[uid]
+                    if after and type(after.Locked)=="table"and type(after.Stats)=="table"then
+                        if action=="lock"and after.Locked[a]==wanted then
+                            pending[marker]=nil
+                            log(item.Name.." stat "..a..(wanted and " locked: ODM Damage"or " unlocked for reroll"))
+                        elseif action=="roll"and (artifactDamageFingerprint(after)~=pending[marker].fingerprint
+                            or tonumber((fresh.Currency or {}).Gold)and pending[marker].gold
+                                and tonumber(fresh.Currency.Gold)<pending[marker].gold)then
+                            pending[marker]=nil
+                            log("Rolled "..item.Name.."; checking damage locks")
+                        else log("Request sent; waiting for fresh artifact confirmation")end
+                    else log("Request sent; waiting for fresh artifact data")end
+                    local confirmed=pending[marker]==nil
+                    if confirmed then
+                        metrics.Confirmed+=1
+                        responseCache={slot=fresh,key=key}
+                    else metrics.Unconfirmed+=1 end
+                    nextRoll=os.clock()+math.clamp(tonumber(CONFIG.Lobby.Claims.ArtifactRollInterval)or 0,0,2)
+                    return confirmed
+                elseif action=="gold"then waitingGold=true
+                elseif action=="data"then log("Waiting for artifact stat/cost definitions");nextRoll=os.clock()+2;return end
+            end
+        end
+        if equipped==0 then log("Waiting for equipped Crown / Handkerchief")
+        elseif waitingGold then log("Waiting for Gold; existing ODM Damage locks preserved")
+        else log("Crown / Handkerchief complete: both stats are positive ODM Damage and locked")end
+        nextRoll=os.clock()+3
+    end
+    local function burst()
+        if not active()or equipmentRemoteBusy or equipmentSnapshot.busy then nextRoll=os.clock()+.05;return end
+        local owner=coroutine.running()
+        if missionQuietActive()then nextRoll=os.clock()+.05;return end
+        AstaMissionQuiet.owner=owner
+        AstaMissionQuiet.untilTime=os.clock()+15
+        AstaMissionQuiet.isValid=function()
+            return getgenv().AstaEquipmentWorkerVersion==equipmentVersion
+                and workspace:GetAttribute("Map")=="Lobby"
+        end
+        responseCache=nil
+        local started=os.clock()
+        local before={Rolls=metrics.Rolls,Locks=metrics.Locks,Confirmed=metrics.Confirmed,Unconfirmed=metrics.Unconfirmed}
+        local ok,err=pcall(function()
+            local deadline=started+6
+            for _=1,24 do
+                if not active()then break end
+                AstaMissionQuiet.untilTime=os.clock()+15
+                local confirmed=tickRoll()
+                if not confirmed or os.clock()>=deadline then break end
+                local gap=math.clamp(tonumber(CONFIG.Lobby.Claims.ArtifactRollInterval)or 0,0,2)
+                if gap>0 then task.wait(gap)end
+            end
+        end)
+        responseCache=nil
+        if AstaMissionQuiet.owner==owner then
+            AstaMissionQuiet.owner=nil
+            AstaMissionQuiet.isValid=nil
+        end
+        metrics.LastBurst={Seconds=os.clock()-started,Rolls=metrics.Rolls-before.Rolls,
+            Locks=metrics.Locks-before.Locks,Confirmed=metrics.Confirmed-before.Confirmed,
+            Unconfirmed=metrics.Unconfirmed-before.Unconfirmed}
+        if not ok then nextRoll=os.clock()+3;error(err)end
+        if metrics.LastBurst.Confirmed>0 then
+            print(string.format("[ArtifactDamage] Batch: %d rolls + %d locks | %d confirmed | %.2fs",
+                metrics.LastBurst.Rolls,metrics.LastBurst.Locks,metrics.LastBurst.Confirmed,metrics.LastBurst.Seconds))
+        end
+        -- A bounded yield lets other setup tasks run; it is not a delay between rolls.
+        nextRoll=math.max(nextRoll,os.clock()+.05)
+    end
+    local dataWait={}
+    getgenv().AstaArtifactMissionPreflight=function(fresh)
+        if workspace:GetAttribute("Map")~="Lobby"then return false,"Artifact farming requires Town Central"end
+        if getgenv().AstaEquipmentWorkerVersion~=equipmentVersion then return false,"Artifact worker initializing"end
+        local ownQuiet=missionQuietActive()and AstaMissionQuiet.owner==coroutine.running()
+        if not ownQuiet and (equipmentRemoteBusy or equipmentSnapshot.busy)then return false,"Finishing account request"end
+        if missionQuietActive()and AstaMissionQuiet.owner~=coroutine.running()then return false,"Artifact/account batch running"end
+        if CONFIG.Lobby.Claims.ArtifactDamageRoll~=true then return true,"Artifact rolls disabled"end
+        if AstaPrestigeExclusive.held then return false,"Prestige in progress"end
+        local slot,key
+        if fresh then slot,key=read()
+        else
+            local data=equipmentSnapshot.data
+            key=equipmentSnapshot.key
+            if data and key and os.clock()-equipmentSnapshot.time<=90
+                and normalizeEquipmentSlot(data.Current_Slot)==key
+                and equipmentSlotStillCurrent(game.Players.LocalPlayer,key)then slot=data.Slots[key]end
+        end
+        if not slot or type(slot.Artifacts)~="table"or type(slot.Artifacts.Storage)~="table"
+            or type(slot.Artifacts.Equipped)~="table"or type(slot.Currency)~="table"or tonumber(slot.Currency.Gold)==nil then
+            if fresh then
+                dataWait.started=dataWait.started or os.clock()
+                if os.clock()-dataWait.started>=8 then dataWait.farm=true end
+            end
+            if dataWait.farm then return true,"Artifact data unavailable after bounded retries; farm and retry next Lobby"end
+            return false,"Retrying artifact / Gold read (maximum 8s before farming)"
+        end
+        dataWait={}
+
+        return artifactGoldMissionDecision(slot,require(game.ReplicatedStorage.Modules.Storage.Values),
+            require(game.ReplicatedStorage.Modules.Storage.Items),CONFIG.Lobby.Claims.AchievementArtifacts==true,
+            require(game.ReplicatedStorage.Modules.Storage.Titles))
+    end
+
+    AutoClaimGroup:AddToggle("ArtifactDamageRollToggle",{
+        Text="Auto Roll Crown + Handkerchief: ODM Damage x2",Default=false,
+        Callback=function(value)CONFIG.Lobby.Claims.ArtifactDamageRoll=value;nextRoll=0 end,
+    })
+    task.spawn(function()
+        while getgenv().AstaEquipmentWorkerVersion==equipmentVersion do
+            if active()and os.clock()>=nextRoll then
+                nextRoll=os.clock()+1
+                local ok,err=pcall(burst)
+                if not ok then nextRoll=os.clock()+3;log("Worker error: "..tostring(err))end
+            end
+            task.wait(.02)
+        end
+    end)
+end
+
         AutoClaimGroup:AddToggle("ClaimQuestToggle", {
             Text = "Claim Quest",
             Default = false,
@@ -12900,9 +13587,6 @@ if Tabs.AutoFarm then
             if not v then
                 getgenv().IsReloading = false
                 getgenv().IsRefilling = false
-                reloadInProgress = false
-                refillInProgress = false
-                refillStage = 0
             end
         end
     })
@@ -14256,85 +14940,14 @@ local function GetTargets(limit)
     return result
 end
 
--- Hold the current position only during a native blade-set reload.
--- Full refills own movement and must never inherit this position constraint.
-do
-    local env=getgenv()
-    if env.AstaBladeReloadHold then env.AstaBladeReloadHold:Destroy()end
-    local hold={}
-    env.AstaBladeReloadHold=hold
-    local rootRef,attachment,position,orientation
-    local connection
-    local function clear()
-        if position then position:Destroy();position=nil end
-        if orientation then orientation:Destroy();orientation=nil end
-        if attachment then attachment:Destroy();attachment=nil end
-        rootRef=nil
-    end
-    local function shouldHold(mode,reloading,refilling,farming,quest)
-        if mode=="Refill"or refilling then return false end
-        local reload=mode=="Reload"or (mode==nil and reloading==true)
-        return reload and (farming==true or quest==true)
-    end
-    local function update()
-        local player=game:GetService("Players").LocalPlayer
-        local character=player and player.Character
-        local root=character and character:FindFirstChild("HumanoidRootPart")
-        local humanoid=character and character:FindFirstChildWhichIsA("Humanoid")
-        local actor=character and character:FindFirstChild("Actor")
-        local mode=actor and actor:GetAttribute("AstaSupplyMode")
-        if not root or not humanoid or humanoid.Health<=0 or IsRewardsUIVisible()
-            or not shouldHold(mode,env.IsReloading,env.IsRefilling,env.AutoFarmBlade,env.AstaTSOwns)then
-            clear();return
-        end
-        if rootRef==root and position and position.Parent and orientation and orientation.Parent then return end
-        clear()
-        rootRef=root
-        local anchor=root.CFrame
-        attachment=Instance.new("Attachment")
-        attachment.Name="AstaBladeReloadAttachment"
-        attachment.Parent=root
-        position=Instance.new("AlignPosition")
-        position.Name="AstaBladeReloadPosition"
-        position.Mode=Enum.PositionAlignmentMode.OneAttachment
-        position.Attachment0=attachment
-        position.ApplyAtCenterOfMass=true
-        position.RigidityEnabled=true
-        position.MaxForce=math.max(100000,root.AssemblyMass*workspace.Gravity*50)
-        position.Responsiveness=100
-        position.Position=anchor.Position
-        position.Parent=root
-        orientation=Instance.new("AlignOrientation")
-        orientation.Name="AstaBladeReloadOrientation"
-        orientation.Mode=Enum.OrientationAlignmentMode.OneAttachment
-        orientation.Attachment0=attachment
-        orientation.RigidityEnabled=true
-        orientation.MaxTorque=math.max(1000000,root.AssemblyMass*workspace.Gravity*100)
-        orientation.Responsiveness=100
-        orientation.CFrame=anchor.Rotation
-        orientation.Parent=root
-        root.AssemblyLinearVelocity=Vector3.zero
-        root.AssemblyAngularVelocity=Vector3.zero
-    end
-    function hold:Destroy()
-        if connection then connection:Disconnect();connection=nil end
-        clear()
-        if env.AstaBladeReloadHold==self then env.AstaBladeReloadHold=nil end
-    end
-    connection=game:GetService("RunService").Heartbeat:Connect(function()
-        local ok,err=pcall(update)
-        if not ok then clear();warn("[ReloadHover] "..tostring(err))end
-    end)
-end
-
--- Native Blade controller; the existing reload/refill worker remains the sole supply owner.
+-- Supplied Blade controller: one owner for combat, movement and supply actions.
 task.spawn(function()
     while task.wait(0.1) do
         local G=getgenv()
         if not G.AstaTSOwns then
             local c=G.AstaBladeController
             local enabled=G.AutoFarmBlade and not G.AutoThunderSpear and not IsRewardsUIVisible()
-                and not G.IsReloading and not G.IsRefilling and not AstaPrestigeExclusive.held
+                and not AstaPrestigeExclusive.held
             if enabled and workspace:FindFirstChild("Titans") then
                 local ok,err=pcall(function()
                     c=G.AstaGetBladeCombat()
@@ -14353,8 +14966,8 @@ task.spawn(function()
                     c.TeleportOffset = Vector3.new(0, 200, 0)
                     c.Interval = math.max(0.05, tonumber(MissionRemoteConfig.BladeBatchInterval) or 0.6)
                     c.MaxTargets = math.clamp(tonumber(G.KillHits) or 15,1,15)
-                    -- Supply and retry handling remain owned by the main script.
-                    c.AutoRefill = false
+                    -- Supply actions use the supplied native Actor sequence.
+                    c.AutoRefill = G.AutoReloadBlade==true
                     c.AutoRetry = false
                     if not c.Enabled then c:Start()end
                 end)
@@ -15418,178 +16031,6 @@ task.spawn(function()
 end)
 
 
-do
-    local env=getgenv()
-    local token={}
-    env.AstaSupplyWorkerToken=token
-    local nativeSource=[======[
--- Actor-local supply worker. No attack or mission actions are owned here.
-local player=game:GetService("Players").LocalPlayer
-local character=player.Character
-local actor=character and character:FindFirstChild("Actor")
-if not actor then return end
-local job=actor:GetAttribute("AstaSupplyJob")
-local function current()
-    return actor:GetAttribute("AstaSupplyJob")==job and player.Character==character
-end
-local function enabled()
-    local h=character:FindFirstChildWhichIsA("Humanoid")
-    return current()and actor:GetAttribute("AstaSupplyEnabled")==true and h and h.Health>0
-end
-local function status(message,mode)
-    if current()then actor:SetAttribute("AstaSupplyStatus",message);actor:SetAttribute("AstaSupplyMode",mode or "Idle")end
-end
-local host
-local function resolve()
-    if host and host.Cache and host.Cache.Character==character then return host end
-    for _,v in filtergc("table",{Keys={"Modules","Cache","Loadout"}},false)do
-        if v.Cache.Character==character and v.Modules.ODMG and v.Loadout then host=v;return host end
-    end
-end
-local function spareCount(rig)
-    local n=0
-    if rig then for i=1,3 do
-        local a=rig:FindFirstChild("Left_"..i,true)
-        local b=rig:FindFirstChild("Right_"..i,true)
-        if a and b and a:GetAttribute("Used")==nil then n+=1 end
-    end end
-    return n
-end
-local function stock(h,station)
-    local count=tonumber(station.Parent:GetAttribute("Refills"))
-    if count~=nil then return count end
-    count=tonumber(player:GetAttribute("Refills"))
-    local ref=h.Modules.Zones.Reference
-    if ref and ref:IsA("ValueBase")then count=(count or 0)+(tonumber(ref.Value)or 0)end
-    return count
-end
-local function stationFor(h,root)
-    local best,distance
-    for _,p in workspace:QueryDescendants("#Refill")do
-        if p:IsA("BasePart")and (stock(h,p)or 0)>0 then
-            local d=(p.Position-root.Position).Magnitude
-            if not distance or d<distance then best,distance=p,d end
-        end
-    end
-    return best
-end
-local nextAttempt=0
-local function step()
-    local h=resolve()
-    if not h then status("Waiting for native supply data");return end
-    if h.Loadout.Weapon~="Blades"then status("Blade supply worker: waiting for Blades");return end
-    local od=h.Modules.ODMG
-    local vars=h.Cache.Variables
-    local root=character:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-    if vars.Reload or vars.Full_Reload then status("Waiting for native supply animation",vars.Full_Reload and "Refill"or "Reload");return end
-    local ready,rig=od.Blade_Check(h,character)
-    if ready==true then status("Blades ready");return end
-    if os.clock()<nextAttempt then return end
-    if od.Get_Reload(rig)then
-        status("Reloading a spare blade set","Reload")
-        task.wait(.15)
-        if not enabled()then return end
-        od.Reload(h,false)
-        local deadline=os.clock()+8
-        repeat
-            task.wait(.1)
-            if not enabled()then return end
-            local usable=od.Blade_Check(h,character)
-            if usable==true and not vars.Reload then status("Blade reload confirmed");nextAttempt=os.clock()+.4;return end
-        until os.clock()>deadline
-        status("Blade reload unconfirmed; retry delayed")
-        nextAttempt=os.clock()+3
-        return
-    end
-    local station=stationFor(h,root)
-    if not station then status("No stocked refill station available");nextAttempt=os.clock()+5;return end
-    local before=spareCount(rig)
-    local previous=h.Modules.Zones.Refill_Station
-    local returnPosition=root.CFrame
-    status("Refilling at nearest stocked station","Refill")
-    local function restore()
-        if not current()then return end
-        if h.Modules.Zones.Refill_Station==station then h.Modules.Zones.Refill_Station=previous end
-        if current()and root.Parent and character.Humanoid.Health>0 then
-            root.CFrame=returnPosition;root.AssemblyLinearVelocity=Vector3.zero
-        end
-    end
-    local ok,err=pcall(function()
-        task.wait(.2)
-        if not enabled()then return end
-        root.CFrame=station.CFrame+Vector3.new(0,3,0)
-        root.AssemblyLinearVelocity=Vector3.zero;root.AssemblyAngularVelocity=Vector3.zero
-        task.wait(.7)
-        if not enabled()or not station.Parent then return end
-        h.Modules.Zones.Refill_Station=station
-        od.Reload(h) -- Native full-refill action; normal reload passes false above.
-        local deadline=os.clock()+16
-        repeat
-            task.wait(.15)
-            if not enabled()then return end
-            local freshRig=od.Rig(h,character)
-            if not vars.Full_Reload and spareCount(freshRig)>before then
-                actor:SetAttribute("AstaSupplyLastSuccess",os.clock())
-                status("Full refill confirmed","Refill")
-                return
-            end
-        until os.clock()>deadline
-        status("Full refill unconfirmed; check native action/station","Refill")
-    end)
-    restore()
-    if not ok then status("Refill error: "..tostring(err))else
-        local last=actor:GetAttribute("AstaSupplyLastSuccess")
-        status(last and os.clock()-last<2 and "Full refill confirmed"or "Refill not confirmed; retry delayed")
-    end
-    nextAttempt=os.clock()+3
-end
-local ok,err=pcall(function()
-    while enabled()do step();task.wait(.2)end
-end)
-if current()then status(not ok and ("Supply worker error: "..tostring(err))or "Supply worker stopped");actor:SetAttribute("AstaSupplyRunning",false)end
-
-]======]
-    task.spawn(function()
-        local currentActor,currentJob
-        local lastMessage
-        while env.AstaSupplyWorkerToken==token do
-            local player=game.Players.LocalPlayer
-            local c=player and player.Character
-            local h=c and c:FindFirstChildWhichIsA("Humanoid")
-            local actor=c and c:FindFirstChild("Actor")
-            local enabled=env.AutoReloadBlade==true and h and h.Health>0 and actor~=nil
-            if currentActor and (currentActor~=actor or not enabled)then
-                if currentActor:GetAttribute("AstaSupplyJob")==currentJob then currentActor:SetAttribute("AstaSupplyEnabled",false)end
-                currentActor=nil
-                env.IsReloading=false;env.IsRefilling=false
-            end
-            if enabled then
-                if currentActor~=actor or actor:GetAttribute("AstaSupplyRunning")~=true then
-                    currentActor=actor
-                    currentJob=(actor:GetAttribute("AstaSupplyJob")or 0)+1
-                    actor:SetAttribute("AstaSupplyJob",currentJob)
-                    actor:SetAttribute("AstaSupplyEnabled",true)
-                    actor:SetAttribute("AstaSupplyRunning",true)
-                    local ok,err=pcall(function()
-                        assert(type(run_on_actor)=="function" and type(filtergc)=="function","Supply worker requires run_on_actor/filtergc")
-                        run_on_actor(actor,nativeSource)
-                    end)
-                    if not ok then
-                        actor:SetAttribute("AstaSupplyRunning",false)
-                        warn("[AutoRefill] "..tostring(err));task.wait(3)
-                    end
-                end
-                local mode=actor:GetAttribute("AstaSupplyMode")
-                env.IsReloading=mode=="Reload";env.IsRefilling=mode=="Refill"
-                local message=actor:GetAttribute("AstaSupplyStatus")
-                if message and message~=lastMessage then print("[AutoRefill] "..message);lastMessage=message end
-            end
-            task.wait(.1)
-        end
-        if currentActor and currentActor:GetAttribute("AstaSupplyJob")==currentJob then currentActor:SetAttribute("AstaSupplyEnabled",false)end
-    end)
-end
 
 if Tabs.Webhook then
     -- Separate function scope prevents Luau's 200-local-register limit.
