@@ -203,7 +203,7 @@ getgenv().TownShipConfig = {
                 [0] = 0,           -- Gold requirement used for Prestige 0 -> 1.
                 [1] = 0,           -- Gold requirement used for Prestige 1 -> 2.
                 [2] = 0,           -- Gold requirement used for Prestige 2 -> 3.
-                [3] = 400,           -- Gold requirement used for Prestige 3 -> 4.
+                [3] = 500,           -- Gold requirement used for Prestige 3 -> 4.
                 [4] = 1000,          -- Gold requirement used for Prestige 4 -> 5.
             },
 
