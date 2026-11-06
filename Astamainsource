@@ -1,3 +1,67 @@
+-- Edit this config only.
+getgenv().AstaConfig = {
+    Console = true,
+    Slot = "A",
+    AutoJoin = true,
+
+    AutoMission = true,
+    AutoWaves = false,
+    Map = "Shiganshina",
+    Objective = "Breach",
+    Difficulty = "Hardest",
+    MissionDelay = 15,
+    UseModifiers = true,
+    Modifiers = {"Nightmare", "No Skills", "Injury Prone", "Oddball", "No Perks", "Fog",
+        "Glass Cannon", "Chronic Injuries", "No Memories", "Time Trial", "Evolution", "Fatigue"},
+    -- Other modifier options: "Boring", "Simple", "Primitive".
+
+    AutoFarm = true,
+    OPFarm = true, -- P3+ at current max level with Kengo + Everlasting Flame.
+    AutoReload = true,
+    AutoRetry = true,
+    AutoReturn = true,
+    ReturnAfterMissions = 20,
+    AutoThunderSpear = false,
+    AutoUnlockThunderSpear = false,
+
+    AutoSkillTree = true,
+    AutoEquipSkills = true,
+    AutoEquipPerks = true,
+    UpgradeBlades = true,
+    UpgradeSpears = false,
+    AutoDeletePerks = true,
+    DeletePerkRarities = {"Common", "Rare", "Epic", "Legendary"}, -- Options: "Common", "Rare", "Epic", "Legendary", "Secret".
+    AutoSellCosmetics = true,
+
+    DeleteSerums = {
+        Enabled = true,
+        Mode = "Duplicates", -- "Selected": sell all listed copies. "Duplicates": keep one per listed type.
+        Selected = {"Female Serum", "Attack Serum", "Armored Serum"}, -- Options: "Female Serum", "Attack Serum", "Armored Serum", "Beast Serum", "Colossal Serum".
+    },
+
+    AutoPrestige = true,
+    ForceGold = true,
+    PrestigeGold = {[0]=0, [1]=0, [2]=0, [3]=500, [4]=1000}, -- Millions.
+
+    AutoPotions = true,
+    GoldBoost = true,
+    XPBoost = true,
+    LuckBoost = true,
+    ClaimQuests = true,
+    ClaimAchievements = true,
+    ClaimBattlepass = true,
+    BuyPremiumBattlepass = true,
+    AutoClaimEquipArtifacts = true,
+    AutoRollArtifactDamage = true,
+
+    RenderModes = {"Delete Map", "Low Graphic", "Disable 3D Render"}, -- Optional: "Disable 3D Render", "Disable Text DMG".
+    FPSLimit = 30,
+    Webhook = true,
+    WebhookURL = "https://discord.com/api/webhooks/1477622665928769536/JO474IX4qv00G9d3WL0AyQdHScSAXXO8M2pjrajZHYFmRLeOI3nFMq2axvWz-D0NFixy",
+    ShadowBanWebhook = true,
+    ShadowBanWebhookURL = "https://discord.com/api/webhooks/1398658944578355323/IMZAxHul-JnmivPapO2Xd1R_Ddxwwq49O91dSQo-3fLerY6AqM7D0h6cOSQdeaiUR2cP",
+}
+
 -- Asta AOTR: recorded Music2 -> Talents -> Prestige with Level/Gold gates and fast mission startup.
 local source = [==========[
 
@@ -33,7 +97,8 @@ end
 -- The loadstring stays at the very bottom.
 -- ============================================================
 
-getgenv().TownShipConfig = {
+do
+local defaults = {
     -- ========================================================
     -- GENERAL
     -- true = enabled / false = disabled
@@ -92,6 +157,7 @@ getgenv().TownShipConfig = {
     -- Used in Town Central and the trade lobby.
     -- ========================================================
     Lobby = {
+        OPFarm = false,
         HideUI = true,               -- Compatibility setting; there is no Linoria menu in this headless build.
         MobileUI = false,            -- Old mobile-UI compatibility behavior for the lobby.
 
@@ -137,6 +203,18 @@ getgenv().TownShipConfig = {
             Selected = {},           -- Boosts for the separate purchase/use system. Example: {"2x Gold Boost [2h]"}.
             Amount = 1,              -- Quantity used by the separate boost-purchase system.
             UseDelay = 0,            -- Delay in seconds between separate boost-use actions.
+        },
+
+        DeleteSerums = {
+            Enabled = false,
+            Mode = "Duplicates",      -- "Selected" sells listed types; "Duplicates" keeps one of each listed type.
+            Selected = {              -- Applies to both modes; unlisted types are always kept.
+                "Female Serum",
+                -- "Attack Serum",
+                -- "Armored Serum",
+                -- "Beast Serum",
+                -- "Colossal Serum",
+            },
         },
 
         Cosmetics = {
@@ -393,6 +471,131 @@ getgenv().TownShipConfig = {
         Buttons = {},                -- Exact original button names; true runs that action once.
     },
 }
+
+
+local function buildAstaSimpleConfig(defaults,simple)
+    local function copy(value)
+        if type(value)~="table"then return value end
+        local out={};for key,item in pairs(value)do out[key]=copy(item)end;return out
+    end
+    local cfg=copy(defaults)
+    if type(simple)~="table"then return cfg end
+    local bindings={
+        Console={"System","ConsoleMessages"},
+        Slot={"MainMenu","Slot"},AutoJoin={"MainMenu","AutoJoin"},
+        AutoMission={"Lobby","AutoStartMission"},AutoWaves={"Lobby","AutoWaves"},
+        Map={"Lobby","Mission","Name"},Objective={"Lobby","Mission","Objective"},
+        Difficulty={"Lobby","Mission","Difficulty"},MissionDelay={"Lobby","Mission","Delay"},
+        AutoFarm={"Mission","AutoFarm"},AutoReload={"Mission","AutoReload"},
+        OPFarm={"Lobby","OPFarm"},
+        AutoRetry={"Mission","AutoRetry"},AutoReturn={"Mission","AutoReturn"},
+        ReturnAfterMissions={"Mission","Return","TargetMissions"},
+        AutoThunderSpear={"Mission","AutoThunderSpear"},AutoUnlockThunderSpear={"Mission","AutoSpearQuest"},
+        AutoSkillTree={"Lobby","Skills","Unlock"},AutoEquipSkills={"Lobby","Skills","AutoEquip"},
+        AutoEquipPerks={"Lobby","Perks","AutoEquip"},UpgradeBlades={"Lobby","Upgrades","Blade"},
+        UpgradeSpears={"Lobby","Upgrades","Spear"},AutoDeletePerks={"Lobby","Perks","AutoDelete"},
+        AutoSellCosmetics={"Lobby","Cosmetics","AutoSell"},
+        AutoPrestige={"Lobby","Prestige","Enabled"},ForceGold={"Lobby","Prestige","ForceGold"},
+        AutoPotions={"Lobby","Boosts","Enabled"},GoldBoost={"Lobby","Boosts","Gold"},
+        XPBoost={"Lobby","Boosts","XP"},LuckBoost={"Lobby","Boosts","Luck"},
+        ClaimQuests={"Lobby","Claims","Quests"},ClaimAchievements={"Lobby","Claims","Achievements"},
+        ClaimBattlepass={"Lobby","Claims","Battlepass"},BuyPremiumBattlepass={"Lobby","Claims","AutoBuyPremium"},
+        AutoClaimEquipArtifacts={"Lobby","Claims","AchievementArtifacts"},
+        AutoRollArtifactDamage={"Lobby","Claims","ArtifactDamageRoll"},
+        FPSLimit={"Mission","Performance","FPSLimit"},
+        RenderModes={"Mission","Performance","RenderModes"},
+    }
+    for name,path in pairs(bindings)do
+        if simple[name]~=nil then
+            local target=cfg
+            for i=1,#path-1 do target=target[path[i]]end
+            local current=target[path[#path]]
+            assert(current==nil or type(simple[name])==type(current),"Invalid config type: "..name)
+            target[path[#path]]=copy(simple[name])
+        end
+    end
+    if simple.UseModifiers~=nil then
+        cfg.Lobby.Mission.Modifiers=simple.UseModifiers and copy(defaults.Lobby.Mission.Modifiers)or {}
+    end
+    if simple.LowGraphics~=nil then
+        cfg.Mission.Performance.RenderModes=simple.LowGraphics and copy(defaults.Mission.Performance.RenderModes)or {}
+    end
+    if type(simple.PrestigeGold)=="table"then
+        for prestige=0,4 do
+            local value=simple.PrestigeGold[prestige]
+            if value==nil then value=simple.PrestigeGold[tostring(prestige)]end
+            if value~=nil then
+                assert(tonumber(value)and tonumber(value)>=0,"PrestigeGold values must be nonnegative numbers in millions")
+                cfg.Lobby.Prestige.GoldRequirements[prestige]=tonumber(value)
+            end
+        end
+    end
+    if simple.Webhook~=nil then
+        assert(type(simple.Webhook)=="boolean","Webhook must be true or false")
+        local url=simple.WebhookURL or ""
+        assert(type(url)=="string","WebhookURL must be a string")
+        local enabled=simple.Webhook
+        cfg.Mission.Webhook.Enabled=enabled
+        cfg.Mission.Webhook.URL=enabled and url or ""
+        cfg.Mission.Webhook.Mode="All Data"
+        cfg.Mission.Webhook.PingMode="None"
+        cfg.Mission.Webhook.Filters=copy(defaults.Mission.Webhook.Filters)
+        cfg.MainMenu.AutoNotify=enabled
+        cfg.MainMenu.WebhookURL=enabled and url or ""
+    end
+    if simple.ShadowBanWebhook ~= nil then
+        assert(type(simple.ShadowBanWebhook)=="boolean", "ShadowBanWebhook must be true or false")
+        cfg.Lobby.ShadowChecker.Enabled=simple.ShadowBanWebhook
+    end
+    if simple.ShadowBanWebhookURL ~= nil then
+        assert(type(simple.ShadowBanWebhookURL)=="string", "ShadowBanWebhookURL must be a string")
+        cfg.Lobby.ShadowChecker.WebhookURL=simple.ShadowBanWebhookURL
+    end
+    if simple.ShadowBanWebhook==false then cfg.Lobby.ShadowChecker.WebhookURL="" end
+    if simple.DeleteSerums ~= nil then
+        local value = simple.DeleteSerums
+        assert(type(value)=="table", "DeleteSerums must be a table")
+        local dst = cfg.Lobby.DeleteSerums
+        if value.Enabled ~= nil then
+            assert(type(value.Enabled)=="boolean", "DeleteSerums.Enabled must be true or false")
+            dst.Enabled = value.Enabled
+        end
+        if value.Mode ~= nil then
+            assert(value.Mode=="Selected" or value.Mode=="Duplicates", "DeleteSerums.Mode must be Selected or Duplicates")
+            dst.Mode = value.Mode
+        end
+        if value.Selected ~= nil then
+            assert(type(value.Selected)=="table", "DeleteSerums.Selected must be a list")
+            for key,name in pairs(value.Selected) do
+                assert(type(key)=="number" and key>=1 and key%1==0 and type(name)=="string", "DeleteSerums.Selected must contain serum names")
+            end
+            dst.Selected = copy(value.Selected)
+        end
+    end
+    if simple.DeletePerkRarities ~= nil then
+        assert(type(simple.DeletePerkRarities)=="table", "DeletePerkRarities must be a list")
+        local allowed={Common=true,Rare=true,Epic=true,Legendary=true,Secret=true}
+        local enabled={}
+        for _,rarity in ipairs(simple.DeletePerkRarities) do
+            assert(allowed[rarity], "Unknown DeletePerkRarities value: "..tostring(rarity))
+            enabled[rarity]=true
+        end
+        for rarity in pairs(allowed) do cfg.Lobby.Perks[rarity]=enabled[rarity]==true end
+    end
+    if simple.Modifiers ~= nil then
+        assert(type(simple.Modifiers)=="table", "Modifiers must be a list")
+        local list,seen={},{}
+        for _,name in ipairs(simple.Modifiers) do
+            assert(type(name)=="string" and #name>0, "Modifiers must contain modifier names")
+            if not seen[name] then seen[name]=true;list[#list+1]=name end
+        end
+        cfg.Lobby.Mission.Modifiers=simple.UseModifiers==false and {} or list
+    end
+    return cfg
+end
+
+getgenv().TownShipConfig = buildAstaSimpleConfig(defaults, getgenv().AstaConfig)
+end
 
 -- ============================================================
 -- LOAD THE GITHUB CORE
@@ -3946,6 +4149,7 @@ local function readEquipmentData(force, expectedKey, requiredKind)
         if requiredKind == "skills" and not hasSkills then return nil end
         if requiredKind == "tree" and not(type(skills)=="table"and type(skills.Unlocked)=="table")then return nil end
         if requiredKind == "perks" and not hasPerks then return nil end
+        if requiredKind == "inventory" and not(type(slot.Inventory)=="table" and type(slot.Inventory.Items)=="table") then return nil end
         if requiredKind=="battlepass"and not(type(slot.Battlepass)=="table"and type(slot.Battlepass.Claimed)=="table"and type(slot.Battlepass.Tier)=="number")then return nil end
         if requiredKind=="artifacts"and not(type(slot.Titles)=="table"and type(slot.Claimed)=="table"
             and type(slot.Artifacts)=="table"and type(slot.Artifacts.Storage)=="table"and type(slot.Artifacts.Equipped)=="table")then return nil end
@@ -3966,8 +4170,21 @@ local function readEquipmentData(force, expectedKey, requiredKind)
         return nil
     end
 
+    local function foreignMissionWindow()
+        return missionQuietActive() and AstaMissionQuiet.owner~=coroutine.running()
+    end
+    if foreignMissionWindow() then
+        if not force then return recentData() end
+        return nil
+    end
     local deadline = os.clock() + 15
-    while equipmentSnapshot.busy and os.clock() < deadline do task.wait(0.05) end
+    while equipmentSnapshot.busy and os.clock() < deadline do
+        if foreignMissionWindow() then
+        if not force then return recentData() end
+        return nil
+    end
+        task.wait(0.05)
+    end
     if equipmentSnapshot.busy then
         if not force then return recentData() end
         return nil
@@ -3980,6 +4197,10 @@ local function readEquipmentData(force, expectedKey, requiredKind)
         end
     end
 
+    if foreignMissionWindow() then
+        if not force then return recentData() end
+        return nil
+    end
     equipmentSnapshot.busy = true
     local result, resultKey
     local ok, err = pcall(function()
@@ -4020,6 +4241,344 @@ local function readEquipmentData(force, expectedKey, requiredKind)
 
     if not force then return recentData() end
     return nil
+end
+
+do
+local function opFarmPlan(slot)
+    if type(slot)~="table"or type(slot.Progression)~="table"or type(slot.Perks)~="table"then return nil end
+    local p,l=slot.Progression.Prestige,slot.Progression.Level
+    if type(p)~="number"or p%1~=0 or p<3 or p>5 or type(l)~="number"or l~=100+25*p then return nil end
+    local storage=slot.Perks.Storage
+    if type(storage)~="table"then return nil end
+    local chosen={}
+    for uid,item in pairs(storage)do
+        if type(uid)=="string"and type(item)=="table"and(item.Name=="Kengo"or item.Name=="Everlasting Flame")then
+            local old=chosen[item.Name]and storage[chosen[item.Name]]
+            local level,xp=tonumber(item.Level)or 0,tonumber(item.XP)or 0
+            local oldLevel,oldXP=old and tonumber(old.Level)or -1,old and tonumber(old.XP)or -1
+            local equipped=slot.Perks.Equipped or {}
+            local isEquipped=equipped.Body==uid or equipped.Offense==uid
+            local oldEquipped=equipped.Body==chosen[item.Name]or equipped.Offense==chosen[item.Name]
+            if not old or level>oldLevel or level==oldLevel and (xp>oldXP
+                or xp==oldXP and (isEquipped and not oldEquipped or isEquipped==oldEquipped and uid<chosen[item.Name]))then
+                chosen[item.Name]=uid
+            end
+        end
+    end
+    if not chosen.Kengo or not chosen["Everlasting Flame"]then return nil end
+    return {{name="Kengo",uid=chosen.Kengo,category="Body"},
+        {name="Everlasting Flame",uid=chosen["Everlasting Flame"],category="Offense"}}
+end
+local function opFarmModifiers(rules,objective)
+    local selected,disabled={}, {["No Perks"]=true,Oddball=true}
+    for _,name in ipairs(rules.Freedom and rules.Freedom.Disabled or {})do disabled[name]=true end
+    for _,name in ipairs(rules.Blacklisted and rules.Blacklisted[objective]or {})do disabled[name]=true end
+    for _,entry in ipairs(rules.Gamemodes and rules.Gamemodes.Other or {})do
+        if type(entry.Tag)=="string"and not disabled[entry.Tag]then selected[entry.Tag]=true end
+    end
+    return selected
+end
+local function opUpgradePlan(slot,targetId,catalog,values,deleteSettings)
+    local storage=slot.Perks.Storage;local target=storage[targetId]
+    local function rarity(name)
+        for r,entries in pairs(catalog)do if type(entries)=="table"and entries[name]then return r end end
+    end
+    local r=target and rarity(target.Name);local levels=r and values.Perk_Level_XP[r]
+    if not levels or type(target.Level)~="number"or target.Level>=#levels then return nil end
+    local remaining=-(tonumber(target.XP)or 0)
+    for i=target.Level+1,#levels do remaining+=levels[i]end
+    local gold=slot.Currency and tonumber(slot.Currency.Gold)
+    if remaining<=0 or not gold or gold<0 then return nil end
+    local equipped={};for _,uid in pairs(slot.Perks.Equipped or {})do equipped[uid]=true end
+    local candidates={}
+    for uid,item in pairs(storage)do
+        if uid~=targetId and not equipped[uid]and type(item)=="table"
+            and item.Name~="Kengo"and item.Name~="Everlasting Flame"
+            and item.Locked~=true and item.Lock~=true then
+            local rare=rarity(item.Name)
+            if rare and rare~="Mythic"and rare~="Secret"and rare~="Divine"and deleteSettings[rare]==true then
+                local xp=values.Perk_XP[rare]
+                if type(xp)=="number"then
+                    for i=1,math.max(0,tonumber(item.Level)or 0)do
+                        xp=math.floor(xp+values.Perk_Level_XP[rare][math.clamp(i,1,10)]*.75)
+                    end
+                    if xp>0 then candidates[#candidates+1]={uid=uid,xp=xp}end
+                end
+            end
+        end
+    end
+    table.sort(candidates,function(a,b)return a.xp==b.xp and a.uid<b.uid or a.xp<b.xp end)
+    local ids,total,count={},0,0
+    for _,item in ipairs(candidates)do
+        if math.min(remaining,total+item.xp)*20<=gold then
+            ids[item.uid]=1;total+=item.xp;count+=1
+            if total>=remaining or count>=25 then break end
+        end
+    end
+    if count==0 then return nil end
+    return {ids=ids,cost=math.min(remaining,total)*20,count=count}
+end
+do
+    local op={Active=false,RetryAt={}}
+    getgenv().AstaOPFarm=op
+    function op:Wants(slot)
+        return CONFIG.Lobby.OPFarm==true and opFarmPlan(slot)~=nil
+    end
+    function op:Matches(slot)
+        local plan=opFarmPlan(slot)
+        if not plan then return false end
+        for _,entry in ipairs(plan)do
+            if slot.Perks.Equipped[entry.category]~=entry.uid then return false end
+        end
+        return true
+    end
+    function op:NeedsUpgrade(slot)
+        if not self:Wants(slot)then return false end
+        local plan=opFarmPlan(slot)
+        local values=require(game.ReplicatedStorage.Modules.Storage.Values)
+        local levels=values.Perk_Level_XP.Mythic
+        for _,entry in ipairs(plan)do
+            local item=slot.Perks.Storage[entry.uid]
+            if type(item.Level)=="number"and item.Level<#levels then return true end
+        end
+        return false
+    end
+    function op:UpgradeOwned(slot,key)
+        if not self:Wants(slot)then return true end
+        local catalog=require(game.ReplicatedStorage.Modules.Storage.Perks)
+        local values=require(game.ReplicatedStorage.Modules.Storage.Values)
+        local deadline=os.clock()+6
+        for attempt=1,8 do
+            if CONFIG.Lobby.OPFarm~=true then return false end
+            local fresh,currentKey=readEquipmentData(true,key,"perks")
+            slot=fresh and currentKey==key and fresh.Slots[key]
+            if not slot or not self:Wants(slot)then return false end
+            local pending=self.UpgradePending
+            if pending then
+                local target=slot.Perks.Storage[pending.uid]
+                local advanced=target and (target.Level>pending.level or target.Level==pending.level and target.XP>pending.xp)
+                local consumed=true
+                for uid in pairs(pending.ids)do if slot.Perks.Storage[uid]then consumed=false;break end end
+                if advanced and consumed then
+                    self.UpgradePending=nil
+                    print("[OP Farm] Upgrade confirmed: "..target.Name.." +"..target.Level)
+                elseif os.clock()<pending.time+2 and os.clock()<deadline then
+                    task.wait(.2);continue
+                else
+                    self.Status="Upgrade pending; no repeat request; farming continues"
+                    return true
+                end
+            end
+            if os.clock()>=deadline then return true end
+            local choices=opFarmPlan(slot)
+            table.sort(choices,function(a,b)return slot.Perks.Storage[a.uid].Level<slot.Perks.Storage[b.uid].Level end)
+            local request,target
+            for _,entry in ipairs(choices)do
+                request=opUpgradePlan(slot,entry.uid,catalog,values,CONFIG.Lobby.Perks)
+                if request then target=entry;break end
+            end
+            if not request then return true end
+            if not equipmentSlotStillCurrent(game.Players.LocalPlayer,key)or AstaPrestigeExclusive.held then return false end
+            local item=slot.Perks.Storage[target.uid]
+            self.UpgradePending={uid=target.uid,level=item.Level,xp=item.XP or 0,ids=request.ids,time=os.clock()}
+            equipmentInvoke(key,"S_Equipment","Enhance",target.uid,request.ids)
+            task.wait(.1)
+        end
+        return true
+    end
+    function op:Prepare()
+        self.Active=false
+        if CONFIG.Lobby.OPFarm~=true then self.Cycle=nil;return true,nil end
+        if AstaPrestigeExclusive.held then return false end
+        local data,key=readEquipmentData(true,nil,"perks")
+        if not data then self.Status="Waiting for verified account data";return false end
+        local slot=data.Slots[key]
+        if type(slot.Progression)~="table"or type(slot.Progression.Prestige)~="number"
+            or type(slot.Progression.Level)~="number"or type(slot.Perks.Storage)~="table"
+            or type(slot.Perks.Equipped)~="table"then self.Status="Waiting for complete OP Farm data";return false end
+        if not self:Wants(slot)then self.Cycle=nil;self.Status="Requirements not met; normal farming";return true,nil end
+        self.Active=true
+        if not self:UpgradeOwned(slot,key)then return false end
+        local upgraded,upgradedKey=readEquipmentData(true,key,"perks")
+        slot=upgraded and upgradedKey==key and upgraded.Slots[key]
+        if not slot or not self:Wants(slot)then self.Active=false;return false end
+        for _,entry in ipairs(opFarmPlan(slot))do
+            local fresh,freshKey=readEquipmentData(true,key,"perks")
+            slot=fresh and freshKey==key and fresh.Slots[key]
+            if not slot or not self:Wants(slot)then self.Active=false;return false end
+            if slot.Perks.Equipped[entry.category]~=entry.uid then
+                local requestKey=key..":"..entry.uid..":"..entry.category
+                if os.clock()<(self.RetryAt[requestKey]or 0)then return false end
+                self.RetryAt[requestKey]=os.clock()+10
+                equipmentInvoke(key,"S_Equipment","Perk_State",entry.uid,entry.category)
+                local deadline=os.clock()+3
+                repeat
+                    task.wait(.1)
+                    local updated,updatedKey=readEquipmentData(true,key,"perks")
+                    slot=updated and updatedKey==key and updated.Slots[key]
+                    if not slot or not self:Wants(slot)then return false end
+                    if slot.Perks.Equipped[entry.category]==entry.uid then break end
+                until os.clock()>=deadline
+                if slot.Perks.Equipped[entry.category]~=entry.uid then
+                    self.Status="Waiting for "..entry.name.." -> "..entry.category
+                    warn("[OP Farm] "..self.Status);return false
+                end
+            end
+        end
+        if not self:Matches(slot)then return false end
+        local cycle={key=key,prestige=slot.Progression.Prestige,level=slot.Progression.Level}
+        self.Cycle=cycle;self.Status="Kengo / Everlasting Flame confirmed; Freedom ready"
+        print("[OP Farm] "..self.Status)
+        return true,cycle
+    end
+    function op:VerifyCycle(cycle)
+        if CONFIG.Lobby.OPFarm~=true or not cycle or self.Cycle~=cycle then
+            return false,"OP Farm configuration changed",true
+        end
+        -- The mission owns the quiet window. A background snapshot reader can be
+        -- waiting for that window while holding snapshot.busy; do not wait on it.
+        local data,key
+        for _,args in ipairs({{"Functions","Settings","Music",2},{"Data","Copy"}})do
+            local response=equipmentInvoke(cycle.key,table.unpack(args))
+            if type(response)=="table"and type(response.Slots)=="table"then
+                local selected=normalizeEquipmentSlot(response.Current_Slot or response.CurrentSlot)
+                local live=normalizeEquipmentSlot(game.Players.LocalPlayer:GetAttribute("Slot"))
+                if selected and selected~=cycle.key or live and live~=cycle.key then
+                    return false,"Current slot changed",true
+                end
+                if selected==cycle.key and type(response.Slots[selected])=="table"then
+                    data,key=response,selected;break
+                end
+            end
+        end
+        local slot=data and data.Slots[key]
+        if not slot or type(slot.Progression)~="table"or type(slot.Perks)~="table"
+            or type(slot.Perks.Storage)~="table"or type(slot.Perks.Equipped)~="table"then
+            return false,"Fresh account data unavailable",false
+        end
+        if slot.Progression.Prestige~=cycle.prestige or slot.Progression.Level~=cycle.level then
+            return false,"Prestige or level changed",true
+        end
+        if not self:Matches(slot)then return false,"Required perk equipment changed",true end
+        return true,"Current slot, level and both perks confirmed",false
+    end
+    op.Modifiers=opFarmModifiers
+end
+end
+
+do
+local function buildSerumSalePlan(items, catalog, settings)
+    local plan = {}
+    if type(items) ~= "table" or type(catalog) ~= "table" or type(settings) ~= "table" then return plan end
+    if settings.Enabled ~= true then return plan end
+    local mode = settings.Mode
+    if mode ~= "Selected" and mode ~= "Duplicates" then return plan end
+    local selected = {}
+    for _, name in ipairs(type(settings.Selected) == "table" and settings.Selected or {}) do
+        if type(name) == "string" then selected[name] = true end
+    end
+    for name, count in pairs(items) do
+        local info = catalog[name]
+        local serum = type(name) == "string" and name:match(" Serum$")
+            and type(info) == "table" and info.Type == "Drop"
+        if serum and selected[name] and type(count) == "number" and count > 0 and count < math.huge and count % 1 == 0 then
+            local quantity = mode == "Duplicates" and math.max(0, count - 1)
+                or mode == "Selected" and selected[name] and count or 0
+            if quantity > 0 then plan[#plan + 1] = {Name = name, Count = count, Quantity = quantity} end
+        end
+    end
+    table.sort(plan, function(a, b) return a.Name < b.Name end)
+    return plan
+end
+-- Delete Serums: one confirmed inventory mutation at a time, Lobby only.
+do
+    if IsLobbyLobby() then
+        local version = {}
+        local env = getgenv()
+        env.AstaSerumWorkerVersion = version
+        env.AstaSerumSalePending = env.AstaSerumSalePending or {}
+        local pendingBySlot = env.AstaSerumSalePending
+        local lastStatus
+        local function report(message)
+            env.AstaSerumStatus = message
+            if message ~= lastStatus then lastStatus = message; print("[Delete Serums] " .. message) end
+        end
+        local function settings()
+            return CONFIG.Lobby and CONFIG.Lobby.DeleteSerums
+        end
+        local function ready()
+            local c = settings()
+            if env.AstaSerumWorkerVersion ~= version or env.TownShipHeadlessUnloaded == true
+                or type(c) ~= "table" or c.Enabled ~= true then return false end
+            if workspace:GetAttribute("Map") ~= "Lobby" or AstaPrestigeExclusive.held
+                or missionQuietActive() or env.AstaModifiersApplying then return false end
+            local player = game.Players.LocalPlayer
+            local ui = player and player.PlayerGui:FindFirstChild("Interface")
+            local trading = ui and ui:FindFirstChild("Trading")
+            local prompt = trading and trading:FindFirstChild("Prompt")
+            return not (prompt and prompt:IsA("GuiObject") and prompt.Visible)
+        end
+        task.spawn(function()
+            local catalog
+            while env.AstaSerumWorkerVersion == version and env.TownShipHeadlessUnloaded ~= true do
+                local ok, err = pcall(function()
+                    if not ready() then return end
+                    if not catalog then
+                        local storage = game.ReplicatedStorage:FindFirstChild("Modules")
+                        storage = storage and storage:FindFirstChild("Storage")
+                        local module = storage and storage:FindFirstChild("Items")
+                        if not module then report("Waiting for item catalog"); return end
+                        catalog = require(module)
+                        if type(catalog) ~= "table" then catalog = nil; return end
+                    end
+                    local data, key = readEquipmentData(true, nil, "inventory")
+                    if not data or not key or not ready() then report("Waiting for current-slot inventory"); return end
+                    local items = data.Slots[key].Inventory.Items
+                    local pending = pendingBySlot[key]
+                    if pending then
+                        local count = items[pending.Name]
+                        if count == nil then count = 0 end
+                        if type(count) == "number" and count == pending.Before - pending.Quantity then
+                            pendingBySlot[key] = nil
+                            report("Sold " .. pending.Quantity .. " x " .. pending.Name .. "; remaining " .. count)
+                        else
+                            report("Waiting for confirmation: " .. pending.Name .. "; no repeat sale sent")
+                        end
+                        return
+                    end
+                    local plan = buildSerumSalePlan(items, catalog, settings())
+                    if #plan == 0 then report("No matching serums to sell"); return end
+                    local sale = plan[1]
+                    -- Revalidate the mode and slot immediately before entering the serialized remote.
+                    if not ready() or not equipmentSlotStillCurrent(game.Players.LocalPlayer, key) then return end
+                    while equipmentRemoteBusy and ready() do task.wait(.05) end
+                    if not ready() or equipmentRemoteBusy
+                        or not equipmentSlotStillCurrent(game.Players.LocalPlayer, key) then return end
+                    local latestPlan = buildSerumSalePlan(items, catalog, settings())
+                    local valid
+                    for _, candidate in ipairs(latestPlan) do
+                        if candidate.Name == sale.Name and candidate.Quantity == sale.Quantity then valid = true; break end
+                    end
+                    if not valid then return end
+                    pending = {Name = sale.Name, Before = sale.Count, Quantity = sale.Quantity}
+                    pendingBySlot[key] = pending
+                    equipmentRemoteBusy = true
+                    local sent, response = pcall(function()
+                        return game.ReplicatedStorage.Assets.Remotes.GET:InvokeServer(
+                            "S_Inventory", "Sell", sale.Name, sale.Quantity)
+                    end)
+                    equipmentRemoteBusy = false
+                    equipmentSnapshot.time = -math.huge
+                    report("Requested " .. sale.Quantity .. " x " .. sale.Name .. "; awaiting inventory confirmation")
+                    -- Only the next verified current-slot snapshot confirms the sale, including nil replies.
+                end)
+                if not ok then report("Waiting after error: " .. tostring(err)) end
+                task.wait(2)
+            end
+        end)
+    end
+end
+
 end
 
 -- ============================================================
@@ -4248,6 +4807,7 @@ if IsLobbyLobby() then
                     if not key or (liveKey and liveKey ~= tostring(key)) then return end
                     local slot = data and data.Slots and data.Slots[key]
                     if not slot or not slot.Perks then return end
+                    if getgenv().AstaOPFarm and getgenv().AstaOPFarm:Wants(slot) then return end
                     task.wait(0.2)
                     for _, entry in ipairs(planEquips(slot.Perks)) do
                         if not equipEnabled or not equipmentSlotStillCurrent(player, key)
@@ -4259,6 +4819,7 @@ if IsLobbyLobby() then
                         local fresh=readEquipmentData(true,key,"perks")
                         local current=fresh and fresh.Slots and fresh.Slots[key]
                         if not current or not current.Perks then break end
+                        if getgenv().AstaOPFarm and getgenv().AstaOPFarm:Wants(current) then break end
                         local needed=false
                         for _,choice in planEquips(current.Perks)do
                             if choice.uid==entry.uid and choice.category==entry.category then needed=true;break end
@@ -4333,9 +4894,15 @@ if IsLobbyLobby() then
             end
 
             local toDelete = {}
+            local op=getgenv().AstaOPFarm
+            local current=latestPerkData and latestPerkData.Slots and latestPerkData.Slots[latestPerkKey]
+            if op and current and op:NeedsUpgrade(current)then
+                isDeleting=false;return
+            end
 
             for _, entry in ipairs(list) do
                 if targetRarities[entry.rarity]
+                    and not (CONFIG.Lobby.OPFarm and (entry.name=="Kengo" or entry.name=="Everlasting Flame"))
                     and not (equipEnabled and entry.rarity == "Secret") then
 
                     table.insert(
@@ -8125,6 +8692,7 @@ if Tabs.Lobby then
         warn("[Mission] Modifier state did not change: "..name.."; no duplicate toggle sent")
         return false
     end
+    local opFarmCycle
     local function ApplyMissionModifiers()
         verifiedModifierMission,verifiedModifierSet=nil,nil
         local mission=GetMyMission(.3)
@@ -8140,6 +8708,7 @@ if Tabs.Lobby then
         if not ok or type(rules)~="table"then warn("[Mission] Modifier rules unavailable");return false end
         local allowed={}
         for _,entry in ipairs(rules.Gamemodes and rules.Gamemodes.Other or {})do allowed[entry.Tag]=true end
+        if opFarmCycle then selected=getgenv().AstaOPFarm.Modifiers(rules,mission:GetAttribute("Objective")) end
         local expected=table.clone(selected)
         local difficulty=mission.Value
         local objective=mission:GetAttribute("Objective")
@@ -8227,6 +8796,7 @@ if Tabs.Lobby then
     -- ═══════════════════════════════════════════════════════════
 
     local function WaitForPrestigeBeforeMission(mySession)
+        if opFarmCycle and CONFIG.Lobby.OPFarm==true then return true end
         local cfg = CONFIG.Lobby and CONFIG.Lobby.Prestige
         if not (cfg and cfg.Enabled) and not getgenv().PrestigeEnabled then return true end
         local function log(message)
@@ -8309,6 +8879,7 @@ if Tabs.Lobby then
     end
 
     local function RunMissionCycle(mySession)
+        opFarmCycle=nil
         if getgenv().AstaTSOwns then return end
         if not missionRunning or missionSessionId ~= mySession then return end
 
@@ -8322,6 +8893,11 @@ if Tabs.Lobby then
 
         if not missionRunning or missionSessionId ~= mySession then return end
 
+        if getgenv().AstaOPFarm then
+            local ready,cycle=getgenv().AstaOPFarm:Prepare()
+            if not ready then return end
+            opFarmCycle=cycle
+        end
         if not WaitForPrestigeBeforeMission(mySession) then return end
         if not WaitForArtifactsBeforeMission(mySession)then return end
         if getgenv().AstaTSOwns then return end
@@ -8348,6 +8924,11 @@ if Tabs.Lobby then
         local selectedDifficulty =
             (configMission and configMission.Difficulty)
             or State_Mission.Difficulty
+        local baseMission,baseObjective=currentMission,objective
+        local baseDifficulty=selectedDifficulty
+        if opFarmCycle then
+            currentMission,objective,selectedDifficulty="Chapel","Skirmish","Freedom"
+        end
 
         if not MissionObjectives[currentMission] then
             currentMission = State_Mission.Name
@@ -8392,9 +8973,10 @@ if Tabs.Lobby then
                 or State_Mission.Difficulty
 
             return missionSelectionVersion == selectionVersion
-                and liveMission == currentMission
-                and liveObjective == objective
-                and liveDifficulty == selectedDifficulty
+                and liveMission == (opFarmCycle and baseMission or currentMission)
+                and liveObjective == (opFarmCycle and baseObjective or objective)
+                and liveDifficulty == baseDifficulty
+                and (not opFarmCycle or CONFIG.Lobby.OPFarm==true)
         end
 
         print(string.format("[Mission] Cycle => Map=%s | Obj=%s | Diff=%s", currentMission, objective, selectedDifficulty))
@@ -8478,6 +9060,14 @@ if Tabs.Lobby then
         end
 
         Library:Notify("Starting: " .. currentMission .. " (" .. targetDifficulty .. ")", 2)
+        if opFarmCycle then
+            local confirmed,reason,changed=getgenv().AstaOPFarm:VerifyCycle(opFarmCycle)
+            if not confirmed then
+                warn("[OP Farm] "..tostring(reason).."; mission start postponed")
+                if changed then LeaveMission(true) else modifierRetryMission=GetMyMission(.1) end
+                return
+            end
+        end
         local started = StartMission()
 
         if started then
@@ -10833,6 +11423,9 @@ if IsLobbyLobby() then
     end
     prestigeV2Gate = function(snapshot)
         local s = snapshot.slot
+        if getgenv().AstaOPFarm and getgenv().AstaOPFarm:Wants(s) then
+            return false, "opfarm", "OP Farm owns the eligible max-level loadout"
+        end
         local progression = s.Progression
         local p, level = progression.Prestige, progression.Level
         local function validNumber(value)
