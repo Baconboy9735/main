@@ -8796,7 +8796,6 @@ if Tabs.Lobby then
     -- ═══════════════════════════════════════════════════════════
 
     local function WaitForPrestigeBeforeMission(mySession)
-        if opFarmCycle and CONFIG.Lobby.OPFarm==true then return true end
         local cfg = CONFIG.Lobby and CONFIG.Lobby.Prestige
         if not (cfg and cfg.Enabled) and not getgenv().PrestigeEnabled then return true end
         local function log(message)
@@ -8893,12 +8892,14 @@ if Tabs.Lobby then
 
         if not missionRunning or missionSessionId ~= mySession then return end
 
+        -- Prestige has priority; Prepare reads the account again after the check.
+        if not WaitForPrestigeBeforeMission(mySession) then return end
+        if not missionRunning or missionSessionId ~= mySession then return end
         if getgenv().AstaOPFarm then
             local ready,cycle=getgenv().AstaOPFarm:Prepare()
             if not ready then return end
             opFarmCycle=cycle
         end
-        if not WaitForPrestigeBeforeMission(mySession) then return end
         if not WaitForArtifactsBeforeMission(mySession)then return end
         if getgenv().AstaTSOwns then return end
         if not missionRunning or missionSessionId ~= mySession then return end
@@ -11423,9 +11424,6 @@ if IsLobbyLobby() then
     end
     prestigeV2Gate = function(snapshot)
         local s = snapshot.slot
-        if getgenv().AstaOPFarm and getgenv().AstaOPFarm:Wants(s) then
-            return false, "opfarm", "OP Farm owns the eligible max-level loadout"
-        end
         local progression = s.Progression
         local p, level = progression.Prestige, progression.Level
         local function validNumber(value)
